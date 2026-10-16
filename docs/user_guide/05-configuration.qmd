@@ -1011,26 +1011,28 @@ history for documentation files:
 
 ### Auto-Generated Pages
 
-Pages that Great Docs generates automatically (API reference, changelog, CLI reference) show a
-"Refreshed" timestamp instead:
+Generated pages (API reference, CLI reference, changelog and skills) show a "Refreshed"
+timestamp:
 
 ```
 🔄 Refreshed 2 hours ago
 ```
 
-This indicates when the page content was last regenerated during a build, not when source code was
-edited.
+The timestamp records the site's last build.
 
 ### Which Pages Show Metadata
 
 | Page Type | Shows Metadata |
 |-----------|----------------|
 | User Guide pages | ✓ Yes |
-| Recipes | ✓ Yes |
-| Roadmap, Contributing, etc. | ✓ Yes |
-| API Reference pages | ✓ Yes (as "Refreshed") |
-| Changelog | ✓ Yes (as "Refreshed") |
+| Section pages, such as recipes or examples | ✓ Yes |
+| Blog posts | ✓ Yes |
+| Custom pages (`passthrough` layout) | ✓ Yes |
+| Contributing, Code of Conduct, Roadmap, Security, License and Citation | ✓ Yes |
+| API and CLI Reference pages | ✓ Yes (as "Refreshed") |
+| Changelog and Skills pages | ✓ Yes (as "Refreshed") |
 | Homepage | ✗ No |
+| Custom pages (`raw` layout) | ✗ No |
 
 ### Configuration Options
 

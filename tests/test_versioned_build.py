@@ -450,6 +450,38 @@ class TestPreprocessVersion:
         # Should NOT have the minimal snapshot format
         assert "*Kind:* class" not in result_content
 
+    def test_snapshot_keeps_reference_metadata(self, tmp_path: Path):
+        """Preserve generated-page metadata in older reference snapshots"""
+        source = tmp_path / "source"
+        _make_source_tree(
+            source,
+            {
+                "index.qmd": "---\ntitle: Home\n---\n\nHi",
+                "reference/_metadata.yml": "gd-auto-generated: true\n",
+                "reference/new_func.qmd": "---\ntitle: new_func\n---\n",
+            },
+        )
+        snap = ApiSnapshot(
+            version="0.2",
+            package_name="test_pkg",
+            symbols={"my_func": SymbolInfo(name="my_func", kind="function")},
+        )
+        snap_path = tmp_path / "snapshots" / "v0.2.json"
+        snap.save(snap_path)
+        versions = parse_versions_config(
+            [
+                {"tag": "0.3", "label": "0.3"},
+                {"tag": "0.2", "label": "0.2", "api_snapshot": str(snap_path)},
+            ]
+        )
+
+        dest = tmp_path / "build"
+        preprocess_version(source, dest, versions[1], versions, project_root=tmp_path)
+
+        assert not (dest / "reference" / "new_func.qmd").exists()
+        assert (dest / "reference" / "my_func.qmd").is_file()
+        assert (dest / "reference" / "_metadata.yml").read_text() == "gd-auto-generated: true\n"
+
     def test_in_place_destination_is_not_wiped(self, tmp_path: Path):
         source = tmp_path / "great-docs"
         _make_source_tree(source, {"index.qmd": "---\ntitle: Home\n---\n\nHome\n"})
