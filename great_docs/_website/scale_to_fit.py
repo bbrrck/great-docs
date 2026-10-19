@@ -10,14 +10,20 @@ from __future__ import annotations
 import html
 import json
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypeAlias
 
-from yaml12 import read_yaml
+from yaml12 import Yaml, read_yaml
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from .page_metadata import Page
+
+YamlScalar: TypeAlias = None | bool | int | float | str | Yaml
+"""A parsed YAML scalar or tagged node"""
+
+YamlValue: TypeAlias = "YamlScalar | list[YamlValue] | dict[YamlScalar, YamlValue]"
+"""A parsed YAML value, as front matter or `_metadata.yml` supplies it"""
 
 SELECTORS = "scale-to-fit"
 """Front matter key for the selectors of the elements to scale"""
@@ -28,7 +34,7 @@ MIN_SCALE = "scale-to-fit-min-scale"
 _KEYWORDS = ("mobile", "tablet", "desktop")
 
 
-def element(selectors: object, min_scale: object) -> str | None:
+def element(selectors: YamlValue, min_scale: YamlValue) -> str | None:
     """
     Build the page's scale-to-fit `<meta>` tag from resolved values
 
@@ -62,7 +68,7 @@ def element(selectors: object, min_scale: object) -> str | None:
     return f'<meta name="gd-scale-to-fit-page" data-selectors="{selectors_json}"{minimum_attr}>'
 
 
-def _min_scale(value: object) -> str | None:
+def _min_scale(value: YamlValue) -> str | None:
     """
     Normalise a minimum scale to its attribute value
 
@@ -105,7 +111,7 @@ class Overrides:
     project_dir: Path
     """The Quarto project directory"""
 
-    _metadata_by_directory: dict[Path, dict[str, Any]] = field(
+    _metadata_by_directory: dict[Path, dict[YamlScalar, YamlValue]] = field(  # pyright: ignore[reportUnknownVariableType]
         default_factory=dict, init=False, repr=False, compare=False
     )
     """Metadata read so far, by directory"""
@@ -144,8 +150,8 @@ class Overrides:
         """
         parent = page.path.parent.relative_to(self.project_dir)
         directories = (*reversed(parent.parents), parent)
-        selectors: list[Any] = []
-        min_scale = None
+        selectors: list[YamlValue] = []
+        min_scale: YamlValue = None
         for directory in directories:
             metadata = self._metadata(self.project_dir / directory)
             value = metadata.get(SELECTORS)
@@ -160,7 +166,7 @@ class Overrides:
             page.front_matter.get(MIN_SCALE, min_scale),
         )
 
-    def _metadata(self, directory: Path) -> dict[str, Any]:
+    def _metadata(self, directory: Path) -> dict[YamlScalar, YamlValue]:
         """
         Read and cache a directory's metadata
 
@@ -177,7 +183,7 @@ class Overrides:
             takes precedence over `_metadata.yaml`, even if reading it fails.
         """
         if directory not in self._metadata_by_directory:
-            metadata: Any = None
+            metadata: YamlValue = None
             for name in ("_metadata.yml", "_metadata.yaml"):
                 if (path := directory / name).is_file():
                     try:
