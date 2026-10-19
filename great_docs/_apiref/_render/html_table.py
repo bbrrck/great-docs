@@ -90,8 +90,7 @@ def html_table(
             header_cells = "".join(f"<th>{html.escape(h)}</th>" for h in headers)
 
         body_rows = [
-            "  <tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>"
-            for row in rows  # type: ignore[union-attr]
+            "  <tr>" + "".join(f"<td>{cell}</td>" for cell in row) + "</tr>" for row in rows
         ]
 
         return (
@@ -104,7 +103,7 @@ def html_table(
     # Styling is handled by the .gd-summary-table class in great-docs.scss,
     # which overrides Bootstrap defaults for a cleaner appearance.
     body_rows_2col: list[str] = []
-    for name, desc in rows:  # type: ignore[misc]
+    for name, desc in rows:
         name, desc = str(name), str(desc) if desc is not None else ""
         # Convert markdown links to HTML
         name = _md_link_to_html(name)

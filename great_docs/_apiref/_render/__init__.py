@@ -17,7 +17,6 @@ from .docclass import RenderDocClass
 from .docfunction import RenderDocFunction
 from .docmodule import RenderDocModule
 from .doctypealias import RenderDocTypeAlias
-from .reference_page import RenderReferencePage
 from .reference_section import RenderReferenceSection
 
 if TYPE_CHECKING:

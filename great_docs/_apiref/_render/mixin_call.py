@@ -186,10 +186,14 @@ class __RenderDocCallMixin(RenderDoc):
         -------
         The overload variants, empty when the callable has none.
         """
-        overloads = getattr(self.obj, "overloads", []) or []
+        # The renderer also handles classes, whose overloads are grouped by
+        # member name. Accept both grouped and callable overloads.
+        overloads: dict[str, list[gf.Function]] | list[gf.Function] | None = getattr(
+            self.obj, "overloads", None
+        )
         if isinstance(overloads, dict):
             return [ov for ovs in overloads.values() for ov in ovs]
-        return list(overloads)
+        return list(overloads or [])
 
     def _overload_signature_lines(
         self, name: str, overloads: list[gf.Function]
