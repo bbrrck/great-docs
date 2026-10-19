@@ -4224,10 +4224,11 @@ class GreatDocs:
                     qmd_frontmatter.pop("layout", None)
                     qmd_frontmatter.setdefault("title", page_title)
                     qmd_frontmatter.setdefault("bread-crumbs", False)
-                    if tags := page_dates.head_tags(src_path, self._config, self._page_authors):
-                        qmd_frontmatter[page_dates.HEAD_TAGS] = tags
                     qmd_body = body if body.endswith("\n") else f"{body}\n"
                     qmd_content = f"---\n{format_yaml(qmd_frontmatter)}\n---\n\n{qmd_body}"
+                    qmd_content = page_dates.add_to_page(
+                        qmd_content, src_path, self._config, self._page_authors
+                    )
                     qmd_path.write_text(qmd_content, encoding="utf-8")
                     nav_href = output_rel_path.with_suffix(".qmd").as_posix()
 
@@ -6262,7 +6263,7 @@ class GreatDocs:
 
     def _write_page_metadata(self) -> None:
         """
-        Write search descriptions and social card options into the build directory's pages
+        Write front matter entries and `<head>` tags into the build directory's pages
 
         Run after generating all pages and before rendering.
         """
@@ -15597,11 +15598,9 @@ anchor-sections: true
         Start with the bundled partial to keep metadata independent of the
         installed Quarto version. Add the configured SEO title template,
         translations for languages other than English, and the Open Graph
-        page type for social cards. Include page dates and the site build
-        time when `show_dates` is on.
-
-        Register the partial only when it differs from the bundled version
-        and the configuration has an HTML mapping.
+        page type for social cards. Include the site build time when
+        `show_dates` is on. Write nothing when the configuration has no HTML
+        mapping.
 
         Parameters
         ----------
@@ -15617,8 +15616,7 @@ anchor-sections: true
         if not isinstance(html_config, dict):
             return
 
-        bundled = (self.assets_path / "metadata.html").read_text(encoding="utf-8")
-        partial = bundled
+        partial = (self.assets_path / "metadata.html").read_text(encoding="utf-8")
 
         if self._config.seo_enabled:
             title_line = self._build_title_template_line(self._config.seo_title_template)
@@ -15642,9 +15640,6 @@ anchor-sections: true
         if self._config.show_dates:
             date_lines = page_dates.partial_lines(datetime.now().isoformat())
             partial = partial.rstrip("\n") + "\n" + date_lines + "\n"
-
-        if partial == bundled:
-            return
 
         (self.build_dir / "metadata.html").write_text(partial, encoding="utf-8")
 

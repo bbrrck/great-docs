@@ -14,6 +14,8 @@ VENDORED = Path(great_docs.__file__).parent / "assets" / "metadata.html"
 # `quarto --paths` returns roots that contain this relative path.
 UPSTREAM_RELATIVE = Path("formats") / "html" / "pandoc" / "metadata.html"
 
+HEAD_TAGS_LOOP = ["$for(gd-head-tags)$", "$gd-head-tags$", "$endfor$"]
+
 
 def _quarto_partial() -> Path | None:
     """
@@ -68,6 +70,23 @@ def _without_title(content: str) -> list[str]:
     return [line for line in content.splitlines() if "<title>" not in line]
 
 
+def _unmodified_lines(content: str) -> list[str]:
+    """
+    Return metadata lines unchanged by great-docs
+
+    Parameters
+    ----------
+    content
+        Contents of a metadata partial.
+
+    Returns
+    -------
+    :
+        Lines other than the title element and the `gd-head-tags` loop.
+    """
+    return [line for line in _without_title(content) if line not in HEAD_TAGS_LOOP]
+
+
 def test_bundled_partial_contains_title_element():
     """Confirm that the bundled title element remains available for replacement"""
     assert "<title>" in VENDORED.read_text(encoding="utf-8")
@@ -77,20 +96,19 @@ def test_bundled_partial_contains_title_element():
     _quarto_partial() is None,
     reason="Quarto metadata partial is unavailable",
 )
-def test_bundled_partial_matches_quarto_except_for_title():
+def test_bundled_partial_matches_quarto_except_for_title_and_head_tags() -> None:
     """
     Keep the bundled metadata tags aligned with Quarto
 
-    The build replaces the title element, so this comparison excludes that
-    line. If the remaining lines differ, copy them from the installed partial
-    without changing the bundled title element.
+    Exclude the title element and `gd-head-tags` loop, which great-docs
+    replaces or adds.
     """
-    theirs = _quarto_partial()
-    assert theirs is not None
+    upstream = _quarto_partial()
+    assert upstream is not None
 
-    assert _without_title(VENDORED.read_text(encoding="utf-8")) == _without_title(
-        theirs.read_text(encoding="utf-8")
-    ), f"Bundled metadata tags differ from {theirs}"
+    assert _unmodified_lines(VENDORED.read_text(encoding="utf-8")) == _unmodified_lines(
+        upstream.read_text(encoding="utf-8")
+    ), f"Bundled metadata tags differ from {upstream}"
 
 
 @pytest.mark.parametrize(
@@ -169,14 +187,18 @@ def test_partial_carries_translations_without_seo(tmp_path: Path):
     assert "<title>$pagetitle$" in partial
 
 
-def test_english_without_seo_registers_no_partial(tmp_path: Path):
+def test_bundled_partial_registered_without_options(tmp_path: Path) -> None:
     """
-    Keep the default English metadata when SEO and social cards are disabled
+    Register the bundled partial unchanged when no metadata option is on
+
+    Pages can carry `gd-head-tags` on any site, so the loop must always reach
+    the template.
     """
     docs, config = _write_partial(tmp_path, "seo:\n  enabled: false\nsocial_cards: false\n")
 
-    assert not (docs.build_dir / "metadata.html").exists()
-    assert "template-partials" not in config["format"]["html"]
+    partial = (docs.build_dir / "metadata.html").read_text(encoding="utf-8")
+    assert partial == VENDORED.read_text(encoding="utf-8")
+    assert config["format"]["html"]["template-partials"] == ["metadata.html"]
 
 
 def test_partial_carries_title_and_translations(tmp_path: Path):
@@ -211,12 +233,12 @@ def test_partial_omits_og_type_without_social_cards(tmp_path: Path):
     assert "og:type" not in partial
 
 
-def test_show_dates_registers_partial(tmp_path: Path):
+def test_show_dates_registers_partial(tmp_path: Path) -> None:
     """
-    Register a date metadata partial when SEO and social cards are disabled
+    Add the build time to the partial when SEO and social cards are disabled
 
-    The bundled partial has no date tags. Enabling dates requires a custom
-    partial even for English sites with no other metadata options enabled.
+    The page date tags come through the bundled `gd-head-tags` loop, which
+    appears once.
     """
     docs, config = _write_partial(
         tmp_path, "show_dates: true\nseo:\n  enabled: false\nsocial_cards: false\n"
@@ -224,5 +246,5 @@ def test_show_dates_registers_partial(tmp_path: Path):
 
     partial = (docs.build_dir / "metadata.html").read_text(encoding="utf-8")
     assert config["format"]["html"]["template-partials"] == ["metadata.html"]
-    assert "$for(gd-head-tags)$" in partial
+    assert partial.count("$for(gd-head-tags)$") == 1
     assert partial.count('<meta name="gd-build-time" content="') == 1

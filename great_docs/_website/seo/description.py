@@ -292,14 +292,16 @@ def default_description(config: Config, package_description: str | None) -> str 
     return plain_text(source) if source else None
 
 
-def page_description(content: str, default: str | None) -> str | None:
+def page_description(front_matter: dict[str, Any], body: str, default: str | None) -> str | None:
     """
     Choose the `description-meta` value Python writes for a page
 
     Parameters
     ----------
-    content
-        The page source.
+    front_matter
+        The page's parsed front matter, empty when it has none.
+    body
+        The page source after the front matter.
     default
         The site's default description as plain text.
 
@@ -309,8 +311,7 @@ def page_description(content: str, default: str | None) -> str | None:
         The escaped value, or `None` when the page sets its own description
         or there is nothing to write.
     """
-    front_matter, body = split_front_matter(content)
-    if front_matter is not None and any(key in front_matter for key in PAGE_KEYS):
+    if any(key in front_matter for key in PAGE_KEYS):
         return None
     text = first_paragraph(body).text or default
     return as_metadata(text) if text else None

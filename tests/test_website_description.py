@@ -16,6 +16,7 @@ from great_docs._website.seo.description import (
     metadata_value,
     page_description,
     plain_text,
+    split_front_matter,
 )
 
 LONG = "This sentence is comfortably longer than thirty characters."
@@ -124,12 +125,13 @@ def test_default_description_prefers_the_configured_value():
         (f"---\ndescription-meta: Own\n---\n\n{LONG}\n", None),
     ],
 )
-def test_page_description(content: str, expected: str | None):
-    assert page_description(content, "Site default") == expected
+def test_page_description(content: str, expected: str | None) -> None:
+    front_matter, body = split_front_matter(content)
+    assert page_description(front_matter or {}, body, "Site default") == expected
 
 
-def test_page_description_without_a_default():
-    assert page_description("```\ncode\n```\n", None) is None
+def test_page_description_without_a_default() -> None:
+    assert page_description({}, "```\ncode\n```\n", None) is None
 
 
 def test_add_to_raw_page():

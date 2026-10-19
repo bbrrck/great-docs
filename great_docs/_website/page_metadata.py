@@ -1,20 +1,22 @@
 """
-Search descriptions and social card options for rendered pages
+Search descriptions and social card options for pages Quarto renders
 
-Prepend generated entries to page front matter before Quarto renders it.
-Preserve the author's existing front matter, including comments.
+A single pass before rendering reads each page once and adds search
+descriptions and social card options to its front matter.
+The author's existing front matter, including comments, is preserved.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from yaml12 import format_yaml
 
-from . import social_cards
+from . import head, social_cards
 from .seo import description
 
 if TYPE_CHECKING:
@@ -50,6 +52,53 @@ def rendered_pages(project_dir: Path, quarto_config: dict[str, Any]) -> Iterator
         yield path
 
 
+@dataclass(frozen=True)
+class Page:
+    """A page Quarto renders, read once by the pre-render pass"""
+
+    path: Path
+    """The page's source file"""
+
+    output_path: str
+    """The rendered page relative to the site root, such as `reference/index.html`"""
+
+    content: str
+    """The page source as read"""
+
+    front_matter: dict[str, Any]
+    """The parsed front matter, empty when the page has none or it is not a mapping"""
+
+    body: str
+    """The source after the front matter"""
+
+    @classmethod
+    def make(cls, path: Path, project_dir: Path) -> Page:
+        """
+        Read and parse a page
+
+        Parameters
+        ----------
+        path
+            The page's source file, a `.qmd` or `.md` file under `project_dir`.
+        project_dir
+            The Quarto project directory.
+
+        Returns
+        -------
+        :
+            The page.
+        """
+        content = path.read_text(encoding="utf-8")
+        front_matter, body = description.split_front_matter(content)
+        return cls(
+            path=path,
+            output_path=path.relative_to(project_dir).with_suffix(".html").as_posix(),
+            content=content,
+            front_matter=front_matter or {},
+            body=body,
+        )
+
+
 def add_to_page(content: str, entries: dict[str, Any]) -> str:
     """
     Add entries to the start of a page's front matter
@@ -77,14 +126,14 @@ def write_to_pages(
     project_dir: Path, quarto_config: dict[str, Any], config: Config, default: str | None
 ) -> list[Path]:
     """
-    Write search descriptions and social card options into every rendered page
+    Write search descriptions and social card options into rendered pages
 
-    When SEO is enabled, add `description-meta` to pages that lack a
-    description. When social cards are enabled, add `open-graph` and
-    `twitter-card` options to pages that set neither key. Skip each kind of
-    metadata if the site's header includes already supply it. A page whose
-    own header includes declare Open Graph tags gets options that switch the
-    generated ones off.
+    Read each page once and write it at most once. When SEO is enabled, add
+    `description-meta` to pages that lack a description. When social cards
+    are enabled, add `open-graph` and `twitter-card` options to pages that set
+    neither key. Skip each kind of metadata if the site's header includes
+    already supply it. A page whose own header includes declare Open Graph
+    tags gets options that switch the generated ones off.
 
     Parameters
     ----------
@@ -103,26 +152,35 @@ def write_to_pages(
     :
         The pages that were changed.
     """
-    descriptions = description.applies(quarto_config, config, project_dir)
-    cards = social_cards.applies(quarto_config, config, project_dir)
-    if not (descriptions or cards):
-        return []
+    write_descriptions = description.applies(quarto_config, config, project_dir)
+    write_cards = social_cards.applies(quarto_config, config, project_dir)
     site_name = quarto_config.get("website", {}).get("title")
     header_description = description.header_description(quarto_config, project_dir)
 
     changed: list[Path] = []
     for path in rendered_pages(project_dir, quarto_config):
-        content = path.read_text(encoding="utf-8")
+        page = Page.make(path, project_dir)
         entries: dict[str, Any] = {}
-        if descriptions and (value := description.page_description(content, default)):
+        if write_descriptions and (
+            value := description.page_description(page.front_matter, page.body, default)
+        ):
             entries["description-meta"] = value
-        if cards:
+        if write_cards:
             entries.update(
                 social_cards.page_entries(
-                    content, path.parent, site_name, config, default, header_description
+                    page.front_matter,
+                    page.body,
+                    path.parent,
+                    site_name,
+                    config,
+                    default,
+                    header_description,
                 )
             )
-        if entries:
-            path.write_text(add_to_page(content, entries), encoding="utf-8")
-            changed.append(path)
+        if not entries:
+            continue
+        content = add_to_page(page.content, entries)
+        # Validate existing head tags even though this pass adds none.
+        path.write_text(head.add_tags(content, []), encoding="utf-8")
+        changed.append(path)
     return changed

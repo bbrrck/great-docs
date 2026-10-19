@@ -8,7 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from great_docs._website import page_dates, page_metadata
+import great_docs
+from great_docs._website import head, page_dates
+
+BUNDLED = Path(great_docs.__file__).parent / "assets" / "metadata.html"
 
 pytestmark = pytest.mark.skipif(shutil.which("quarto") is None, reason="Quarto is not installed")
 
@@ -40,16 +43,17 @@ def test_partial_and_direction_reach_the_page(tmp_path: Path):
     assert 'dir="rtl"' in page[page.index("<html") : page.index(">", page.index("<html"))]
 
 
-def test_page_dates_reach_the_page(tmp_path: Path):
+def test_page_dates_reach_the_page(tmp_path: Path) -> None:
     """
-    Preserve date and author metadata through Quarto rendering
+    Preserve head tags from two writers through Quarto rendering
 
     Apply the generated-page marker to every page beneath its directory.
     """
     project = tmp_path / "proj"
     (project / "reference").mkdir(parents=True)
     (project / "metadata.html").write_text(
-        '<meta charset="utf-8" />\n<title>$pagetitle$</title>\n'
+        BUNDLED.read_text(encoding="utf-8").rstrip("\n")
+        + "\n"
         + page_dates.partial_lines("2026-10-16T12:00:00")
         + "\n",
         encoding="utf-8",
@@ -59,11 +63,11 @@ def test_page_dates_reach_the_page(tmp_path: Path):
         "format:\n  html:\n    template-partials:\n      - metadata.html\n",
         encoding="utf-8",
     )
-    tag = '`<meta name="gd-page-author" content="O&#x27;Brien &amp; &quot;Co&quot;">`{=html}'
-    (project / "index.qmd").write_text(
-        page_metadata.add_to_page("---\ntitle: T\n---\n\nText\n", {page_dates.HEAD_TAGS: [tag]}),
-        encoding="utf-8",
+    page = head.add_tags(
+        "---\ntitle: T\n---\n\nText\n", [head.meta_element("gd-page-author", 'O\'Brien & "Co"')]
     )
+    page = head.add_tags(page, [head.meta_element("other", "x`y")])
+    (project / "index.qmd").write_text(page, encoding="utf-8")
     (project / "reference" / "_metadata.yml").write_text(
         f"{page_dates.AUTO_GENERATED}: true\n", encoding="utf-8"
     )
@@ -76,7 +80,8 @@ def test_page_dates_reach_the_page(tmp_path: Path):
     build_time = '<meta name="gd-build-time" content="2026-10-16T12:00:00">'
     # Pandoc decodes the apostrophe, which needs no escape in a double-quoted value.
     assert page.count('<meta name="gd-page-author" content="O\'Brien &amp; &quot;Co&quot;">') == 1
+    assert page.count('<meta name="other" content="x`y">') == 1
     assert 'name="gd-auto-generated"' not in page
     assert generated.count('<meta name="gd-auto-generated" content="true">') == 1
-    assert 'name="gd-page-author"' not in generated
+    assert 'name="gd-page-' not in generated
     assert page.count(build_time) == generated.count(build_time) == 1
