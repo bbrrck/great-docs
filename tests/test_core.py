@@ -2630,6 +2630,28 @@ class TestCanonicalIntegration:
             '<link rel="canonical" href="https://docs.example.com/pkg/custom/widget.html">' in page
         )
 
+    def test_raw_custom_reference_page_gets_structured_data(self, tmp_path):
+        (tmp_path / "great-docs.yml").write_text(
+            "module: mypkg\ncustom_pages:\n  - dir: custom\n    output: reference\n",
+            encoding="utf-8",
+        )
+        gd = GreatDocs(project_path=str(tmp_path))
+        gd.build_dir.mkdir(parents=True, exist_ok=True)
+        (gd.build_dir / "_quarto.yml").write_text(
+            "website:\n  title: Pkg\n  sidebar: []\n  navbar:\n    left: []\n", encoding="utf-8"
+        )
+        custom = tmp_path / "custom"
+        custom.mkdir()
+        (custom / "demo.html").write_text(
+            "---\nlayout: raw\n---\n<html><head></head></html>", encoding="utf-8"
+        )
+
+        gd._process_custom_pages()
+
+        page = (gd.build_dir / "reference" / "demo.html").read_text(encoding="utf-8")
+        assert page.count('<script type="application/ld+json">') == 1
+        assert '"name": "demo - Pkg"' in page
+
     @pytest.mark.parametrize("seo", ["true", "false"])
     def test_raw_custom_page_gets_social_cards(self, tmp_path, monkeypatch, seo):
         (tmp_path / "great-docs.yml").write_text(
@@ -2707,9 +2729,7 @@ class TestPageDescriptions:
         assert f"description-meta: {self.LONG}" in prose.read_text(encoding="utf-8")
         assert "description-meta: Site default" in code.read_text(encoding="utf-8")
 
-    def test_nothing_is_written_when_seo_and_social_cards_are_disabled(
-        self, tmp_path, monkeypatch
-    ):
+    def test_nothing_is_written_when_seo_and_social_cards_are_disabled(self, tmp_path, monkeypatch):
         gd = self._gd(tmp_path, monkeypatch)
         _patch_cfg(monkeypatch, gd, "seo_enabled", False)
         _patch_cfg(monkeypatch, gd, "social_cards_enabled", False)

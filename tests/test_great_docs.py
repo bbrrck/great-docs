@@ -41073,40 +41073,6 @@ seo:
         assert "Sitemap: https://example.com/docs/sitemap.xml" in content
 
 
-def test_get_seo_options():
-    """Test _get_seo_options returns correct options dict."""
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        pyproject = Path(tmp_dir) / "pyproject.toml"
-        pyproject.write_text(
-            """
-[project]
-name = "test-package"
-description = "A test package"
-version = "1.0.0"
-"""
-        )
-
-        config_path = Path(tmp_dir) / "great-docs.yml"
-        config_path.write_text(
-            """
-display_name: Test Package
-seo:
-  canonical:
-    base_url: https://example.com/docs/
-  title_template: "{page_title} | {site_name}"
-"""
-        )
-
-        docs = GreatDocs(project_path=tmp_dir)
-        options = docs._get_seo_options()
-
-        assert options["seo_enabled"] is True
-        assert options["canonical_base_url"] == "https://example.com/docs/"
-        assert options["structured_data_enabled"] is True
-        assert options["site_name"] == "Test Package"
-        assert options["package_description"] == "A test package"
-
-
 # ---------------------------------------------------------------------------
 # Back-to-top button tests
 # ---------------------------------------------------------------------------

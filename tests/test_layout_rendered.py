@@ -448,6 +448,21 @@ def test_freeze_skips_execution_on_rebuild(rendered: Rendered) -> None:
     assert rendered.executions.read_text().splitlines() == ["executed"] * expected_runs
 
 
+def test_structured_data_matches_across_versions(rendered: Rendered) -> None:
+    """
+    Write the same JSON-LD into every version, so pages share one freeze entry
+    """
+    if rendered.tag is None:
+        pytest.skip("Needs a historical version")
+    script = re.compile(r'<script type="application/ld\+json">.*?</script>', re.DOTALL)
+    site = rendered.layout.site_dir
+    for page in ("index.html", "reference/index.html"):
+        latest = script.findall((site / page).read_text(encoding="utf-8"))
+        historical = script.findall((site / "v/1.5.0" / page).read_text(encoding="utf-8"))
+        assert len(latest) == 1, page
+        assert historical == latest, page
+
+
 def test_homepage_shows_readme_fallback(rendered: Rendered) -> None:
     """
     Use the package README when no index page is authored

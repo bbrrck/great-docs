@@ -153,36 +153,6 @@ def page_title(title: object, site_name: str | None, config: Config) -> str | No
     )
 
 
-def declares_own_tags(front_matter: dict[str, Any], page_dir: Path) -> bool:
-    """
-    Check whether a page's own header includes declare an Open Graph property
-
-    Parameters
-    ----------
-    front_matter
-        The page's front matter.
-    page_dir
-        Base directory for the page's relative header file paths.
-
-    Returns
-    -------
-    :
-        `True` when its `include-in-header` or `header-includes` declares one.
-    """
-    page_format = front_matter.get("format")
-    html_format = page_format.get("html") if isinstance(page_format, dict) else None
-    for includes in (
-        front_matter.get("include-in-header"),
-        html_format.get("include-in-header") if isinstance(html_format, dict) else None,
-    ):
-        if includes is not None and head.search_includes(includes, page_dir, _OG_PROPERTY):
-            return True
-    texts = front_matter.get("header-includes")
-    if not isinstance(texts, list):
-        texts = [texts]
-    return any(isinstance(text, str) and _OG_PROPERTY.search(text) for text in texts)
-
-
 def page_entries(
     front_matter: dict[str, Any],
     body: str,
@@ -223,7 +193,7 @@ def page_entries(
     """
     if any(key in front_matter for key in PAGE_KEYS):
         return {}
-    if declares_own_tags(front_matter, page_dir):
+    if head.page_includes_match(front_matter, page_dir, _OG_PROPERTY):
         # Quarto would add its tags beside the page's own and overwrite its `og:title`
         entries: dict[str, Any] = {OWN_CARDS_KEY: True}
         if "website" not in front_matter:
