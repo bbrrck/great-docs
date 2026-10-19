@@ -202,7 +202,7 @@ def griffe_to_doc(
             for m in member_map.values()
             if not (skip_aliases and isinstance(m, gf.Alias))
         ]
-    return content.Doc.from_griffe(obj.name, obj, members=members)  # pyright: ignore[reportUnknownMemberType]
+    return content.Doc.from_griffe(obj.name, obj, members=members)
 
 
 def is_field_init_false(el: gf.Parameter) -> bool:

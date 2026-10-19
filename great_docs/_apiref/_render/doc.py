@@ -33,6 +33,7 @@ from .._docstring_sections import (
     ExampleCode,
     ExampleText,
     transform,
+    transform_sections,
 )
 from .._format import (
     HAS_RUFF,
@@ -397,10 +398,7 @@ class __RenderDoc(RenderBase):
         """
         if not self.obj.docstring:
             return []
-        return cast(
-            "list[gf.DocstringSection]",
-            transform(self.obj.docstring.parsed),
-        )
+        return transform_sections(self.obj.docstring.parsed)
 
     @cached_property
     def docstring_subject(self) -> str | None:

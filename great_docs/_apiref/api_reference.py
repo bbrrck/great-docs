@@ -14,9 +14,9 @@ from yaml12 import read_yaml
 
 from .._interlinks.sphinx_inventory import INVENTORY_FILENAME
 from ._settings import Settings, active_settings
-from .content import Link, Page
+from .content import Doc, Link, Page
 from .inventory import create_inventory, write_inventory
-from .resolve import _autogenerate_sections, _Resolver
+from .resolve import Resolver
 from .spec import SpecOptions, SpecSection
 from .write import (
     write_index,
@@ -71,7 +71,7 @@ class APIReference:
             s if isinstance(s, SpecSection) else SpecSection(**s) for s in raw_sections
         ]
 
-        self._resolver = _Resolver(self.settings)
+        self._resolver = Resolver(self.settings)
         self._resolver.current_package = self.package
 
     @staticmethod
@@ -184,7 +184,7 @@ class APIReference:
         # Object hooks need the reference settings even when resolution runs
         # before the build, such as when listing documented objects.
         with active_settings(self.settings):
-            secs = self.sections or _autogenerate_sections(self._resolver, self.package)
+            secs = self.sections or self._resolver.autogenerate_sections(self.package)
             return self._resolver.resolve_sections(secs)
 
     @cached_property
@@ -198,7 +198,7 @@ class APIReference:
         """
         stems: list[str] = []
 
-        def visit(node: object, stem: str) -> None:
+        def visit(node: Doc | Page | Link, stem: str) -> None:
             stems.append(stem)
             for member in _member_children(node):
                 visit(member, f"{stem}.{_member_name(member)}")
@@ -278,7 +278,7 @@ class APIReference:
             write_sidebar(self, resolved, dir=s.dir, out_page_suffix=s.out_page_suffix)
 
 
-def _member_name(node: object) -> str:
+def _member_name(node: Doc | Page | Link) -> str:
     """The relative name of a resolved member node (Doc, MemberPage, or Link)"""
     if isinstance(node, Page):  # MemberPage (children: separate)
         return node.contents[0].name
@@ -287,8 +287,7 @@ def _member_name(node: object) -> str:
     return node.name  # Doc
 
 
-def _member_children(node: object) -> list[object]:
+def _member_children(node: Doc | Page | Link) -> list[Doc | Page | Link]:
     """The nested member nodes of a resolved member node, if any"""
-    if isinstance(node, Page):
-        return list(getattr(node.contents[0], "members", []))
-    return list(getattr(node, "members", []))
+    doc = node.contents[0] if isinstance(node, Page) else node
+    return list(getattr(doc, "members", []))

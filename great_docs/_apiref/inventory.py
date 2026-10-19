@@ -61,7 +61,7 @@ def write_inventory(inv: Inventory, out_name: str) -> None:
         Output file name.
     """
     with open(out_name, "wb") as f:
-        f.write(encode(inv))
+        _ = f.write(encode(inv))
 
 
 def create_inventory(
@@ -148,11 +148,9 @@ def _is_exception(obj: gf.Object | gf.Alias) -> bool:
         Whether the object is an exception class.
     """
     try:
-        if obj.kind.value != "class":
+        if obj.kind.value != "class" or not isinstance(obj, (gf.Class, gf.Alias)):
             return False
-        ancestors = [obj, *obj.mro()]  # pyright: ignore[reportAttributeAccessIssue]
+        ancestors = [obj, *obj.mro()]
     except (gf.AliasResolutionError, gf.CyclicAliasError, ValueError):
         return False
-    return any(
-        is_builtin_exception(str(base)) for cls in ancestors for base in getattr(cls, "bases", ())
-    )
+    return any(is_builtin_exception(str(base)) for cls in ancestors for base in cls.bases)

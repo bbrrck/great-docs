@@ -34,7 +34,6 @@ from great_docs._content_naming import fix_numeric_prefix_links, strip_numeric_p
 from great_docs._apiref import _globals, content, spec, write
 from great_docs._apiref._docstring_sections import (
     DCDocstringSection,
-    DocstringSectionKindPatched,
     DocstringSectionNotes,
     DocstringSectionSeeAlso,
     DocstringSectionWarnings,
@@ -42,6 +41,7 @@ from great_docs._apiref._docstring_sections import (
     ExampleText,
     _DocstringSectionPatched,
     transform,
+    transform_sections,
     tuple_to_data,
 )
 from great_docs._apiref._format import (
@@ -133,10 +133,9 @@ from great_docs._apiref.inventory import (
 )
 from great_docs._apiref.resolve import (
     ObjectNotFoundError,
-    _autogenerate_sections,
+    Resolver,
     _is_external_alias,
     _join_path,
-    _Resolver,
     _sections_from_package,
     _to_simple_dict,
 )
@@ -7474,9 +7473,9 @@ def test_resolver_get_object_or_raise_missing(tmp_path, monkeypatch):
     (tmp_path / "gdmiss").mkdir()
     (tmp_path / "gdmiss" / "__init__.py").write_text("__all__ = []\n")
     from great_docs._apiref.api_reference import Settings
-    from great_docs._apiref.resolve import ObjectNotFoundError, _Resolver
+    from great_docs._apiref.resolve import ObjectNotFoundError, Resolver
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.current_package = "gdmiss"
     with pytest.raises(ObjectNotFoundError, match="Cannot find an object named"):
         resolver.get_object_or_raise("gdmiss:does_not_exist")
@@ -7501,7 +7500,7 @@ def test_join_path_no_colon():
 def test_scoped_updates_options():
     from great_docs._apiref.api_reference import Settings
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.current_package = "pkg"
     initial_options = resolver.options
     new_options = SpecOptions(include_private=True)
@@ -7514,7 +7513,7 @@ def test_resolve_entry_with_spectext():
     from great_docs._apiref.api_reference import Settings
     from great_docs._apiref.content import Text
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.current_package = None
     text_entry = SpecText(contents="some text")
     result = resolver._resolve_entry(text_entry)
@@ -7525,7 +7524,7 @@ def test_resolve_entry_with_spectext():
 def test_resolve_entry_unknown_type_raises():
     from great_docs._apiref.api_reference import Settings
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.current_package = None
     with pytest.raises(TypeError, match="Cannot resolve section entry of type"):
         resolver._resolve_entry("not_a_valid_type")  # type: ignore[arg-type]
@@ -7550,7 +7549,7 @@ def test_resolve_members_skips_nodoc_member():
 
     cls, method = _make_class_with_method(method_doc="%nodoc")
     objects = {"mymod:MyClass": cls, "mymod:MyClass.my_method": method}
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.current_package = "mymod"
     resolver.get_object = lambda path, **kwargs: objects.get(path)
 
@@ -7568,7 +7567,7 @@ def test_resolve_entry_sanitizes_colon_in_page_path():
 
     cls, method = _make_class_with_method()
     objects = {"mymod:MyClass": cls, "mymod:MyClass.my_method": method}
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.get_object = lambda path, **kwargs: objects.get(path)
 
     [section] = resolver.resolve_sections(
@@ -7597,7 +7596,7 @@ def test_resolve_members_skips_module_member():
         "mymod:MyClass.submod": submod,
         "mymod:MyClass.my_method": method,
     }
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.current_package = "mymod"
     resolver.get_object = lambda path, **kwargs: objects.get(path)
 
@@ -7620,7 +7619,7 @@ def test_resolve_members_children_separate():
 
     cls, method = _make_class_with_method()
     objects = {"mymod:MyClass": cls, "mymod:MyClass.my_method": method}
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.current_package = "mymod"
     resolver.get_object = lambda path, **kwargs: objects.get(path)
 
@@ -7642,7 +7641,7 @@ def test_resolve_members_children_linked():
 
     cls, method = _make_class_with_method()
     objects = {"mymod:MyClass": cls, "mymod:MyClass.my_method": method}
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.current_package = "mymod"
     resolver.get_object = lambda path, **kwargs: objects.get(path)
 
@@ -7665,7 +7664,7 @@ def test_resolve_members_children_invalid_raises():
 
     cls, method = _make_class_with_method()
     objects = {"mymod:MyClass": cls, "mymod:MyClass.my_method": method}
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.current_package = "mymod"
     resolver.get_object = lambda path, **kwargs: objects.get(path)
 
@@ -7698,7 +7697,7 @@ def test_fetch_members_module_with_exports_filters_unexported():
     fn2.docstring = gf.Docstring("Priv.", parent=fn2)
     mod.set_member("priv_func", fn2)
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     el = SpecObject(name="mymod").with_defaults(SpecOptions())
     result = resolver._fetch_members(el, mod)
     assert result == ["pub_func"]
@@ -7718,7 +7717,7 @@ def test_fetch_members_module_exclude_imports():
     alias = gf.Alias("imported_name", target=gf.Function("other_func"))
     mod.set_member("imported_name", alias)
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     el = SpecObject(name="mymod", include_imports=False).with_defaults(SpecOptions())
     result = resolver._fetch_members(el, mod)
     assert "my_func" in result
@@ -7739,7 +7738,7 @@ def test_fetch_members_exclude_attributes():
     fn.docstring = gf.Docstring("Func.", parent=fn)
     mod.set_member("my_func", fn)
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     el = SpecObject(name="mymod", include_attributes=False).with_defaults(SpecOptions())
     result = resolver._fetch_members(el, mod)
     assert "my_func" in result
@@ -7760,7 +7759,7 @@ def test_fetch_members_exclude_classes():
     fn.docstring = gf.Docstring("Func.", parent=fn)
     mod.set_member("my_func", fn)
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     el = SpecObject(name="mymod", include_classes=False).with_defaults(SpecOptions())
     result = resolver._fetch_members(el, mod)
     assert "my_func" in result
@@ -7781,7 +7780,7 @@ def test_fetch_members_exclude_functions():
     fn.docstring = gf.Docstring("Func.", parent=fn)
     mod.set_member("my_func", fn)
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     el = SpecObject(name="mymod", include_functions=False).with_defaults(SpecOptions())
     result = resolver._fetch_members(el, mod)
     assert "my_attr" in result
@@ -7802,7 +7801,7 @@ def test_fetch_members_exclude_list():
     fn2.docstring = gf.Docstring("Exclude.", parent=fn2)
     mod.set_member("exclude_me", fn2)
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     el = SpecObject(name="mymod", exclude=["exclude_me"]).with_defaults(SpecOptions())
     result = resolver._fetch_members(el, mod)
     assert "keep_me" in result
@@ -7821,7 +7820,7 @@ def test_fetch_members_source_order():
         fn.docstring = gf.Docstring("Func.", parent=fn)
         mod.set_member(name, fn)
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     el = SpecObject(name="mymod", member_order="source").with_defaults(SpecOptions())
     result = resolver._fetch_members(el, mod)
     assert result == ["b_func", "a_func", "c_func"]
@@ -7838,7 +7837,7 @@ def test_fetch_members_invalid_order_raises():
     fn.docstring = gf.Docstring("Func.", parent=fn)
     mod.set_member("my_func", fn)
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     el = SpecObject(name="mymod").with_defaults(SpecOptions())
     el = el.replace(member_order="bad_order")
 
@@ -7857,7 +7856,7 @@ def test_fetch_members_include_private_skips_private_filter():
     fn.docstring = gf.Docstring("Private.", parent=fn)
     mod.set_member("_private_func", fn)
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     el = SpecObject(name="mymod", include_private=True).with_defaults(SpecOptions())
     result = resolver._fetch_members(el, mod)
     assert "_private_func" in result
@@ -7876,7 +7875,7 @@ def test_fetch_members_include_empty_skips_docstring_filter():
     fn_no_doc = gf.Function("undocumented", parent=mod)
     mod.set_member("undocumented", fn_no_doc)
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     el = SpecObject(name="mymod", include_empty=True).with_defaults(SpecOptions())
     result = resolver._fetch_members(el, mod)
     assert "documented" in result
@@ -7884,7 +7883,7 @@ def test_fetch_members_include_empty_skips_docstring_filter():
 
 
 def test_autogenerate_sections_returns_sections(capsys):
-    """_autogenerate_sections with a valid module returns sections"""
+    """Verify that a valid module produces default API sections"""
     import griffe as gf
 
     mod = gf.Module("mymod")
@@ -7894,10 +7893,10 @@ def test_autogenerate_sections_returns_sections(capsys):
 
     from great_docs._apiref.api_reference import Settings
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.get_object_or_raise = lambda path, **kwargs: mod
 
-    sections = _autogenerate_sections(resolver, "mymod")
+    sections = resolver.autogenerate_sections("mymod")
     assert len(sections) == 1
     assert sections[0].title == "mymod"
     captured = capsys.readouterr()
@@ -7906,7 +7905,7 @@ def test_autogenerate_sections_returns_sections(capsys):
 
 
 def test_autogenerate_sections_empty_result_raises(capsys):
-    """_autogenerate_sections raises when _sections_from_package returns empty"""
+    """Verify that generating no API sections raises an error"""
     from unittest.mock import patch
 
     import griffe as gf
@@ -7915,12 +7914,12 @@ def test_autogenerate_sections_empty_result_raises(capsys):
 
     from great_docs._apiref.api_reference import Settings
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.get_object_or_raise = lambda path, **kwargs: mod
 
     with patch("great_docs._apiref.resolve._sections_from_package", return_value=[]):
         with pytest.raises(ValueError, match="No API sections could be generated"):
-            _autogenerate_sections(resolver, "mymod")
+            resolver.autogenerate_sections("mymod")
 
 
 def test_spec_object_records_specified_fields():
@@ -31430,14 +31429,14 @@ def test_ast_transform_docstring_section_passthrough():
     assert result == [params_section]
 
 
-def test_ast_transform_all():
-    """transform_all() processes list of mixed sections."""
+def test_ast_transform_sections():
+    """Verify that mixed docstring sections are converted together"""
 
     sections = [
         gf.DocstringSectionText("Notes\n-----\nA note.\n"),
         gf.DocstringSectionParameters([]),
     ]
-    result = _DocstringSectionPatched.transform_all(sections)
+    result = transform_sections(sections)
 
     assert len(result) >= 2  # at least the note + parameters
 
@@ -31790,29 +31789,6 @@ def test_ast_preview_compact():
 
     result = preview(ExampleCode("x = 1"), compact=True, as_string=True)
     assert "ExampleCode" in result
-
-
-def test_ast_docstring_section_see_also():
-    """DocstringSectionSeeAlso has correct kind."""
-
-    sec = DocstringSectionSeeAlso("content", "See Also")
-    assert sec.kind == DocstringSectionKindPatched.see_also
-    assert sec.value == "content"
-
-
-def test_ast_docstring_section_notes():
-    """DocstringSectionNotes has correct kind."""
-
-    sec = DocstringSectionNotes("content", "Notes")
-    assert sec.kind == DocstringSectionKindPatched.notes
-
-
-def test_ast_docstring_section_warnings():
-    """DocstringSectionWarnings has correct kind."""
-
-    sec = DocstringSectionWarnings("content", "Warnings")
-
-    assert sec.kind == DocstringSectionKindPatched.warnings
 
 
 def test_ast_fields_docstring_element():
