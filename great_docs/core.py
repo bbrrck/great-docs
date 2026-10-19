@@ -31,6 +31,7 @@ from ._utils import (
 from ._website import i18n, page_dates, page_metadata, page_url, social_cards
 from ._website.navigation import label as nav_label
 from ._website.seo import description as seo_description
+from ._website.seo import noindex
 from ._website.seo import title as seo_title
 from .config import Config, create_default_config
 
@@ -15014,7 +15015,7 @@ anchor-sections: true
 
         skills_page = self.build_dir / "skills.qmd"
         with open(skills_page, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines))
+            f.write(noindex.add_to_page(self._config, "\n".join(lines)))
 
     def _append_skill_panel_content(
         self,

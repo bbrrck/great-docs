@@ -232,45 +232,6 @@ def inject_json_ld(html_content: str, page_path: str) -> str:
     return html_content
 
 
-def inject_noindex_meta(html_content: str, page_path: str) -> str:
-    """
-    Inject noindex/nofollow meta tags for internal or draft pages.
-
-    Pages that should be noindexed:
-    - Any page with `noindex: true` in frontmatter (processed earlier)
-    - Skill pages (internal/machine-readable)
-
-    Parameters
-    ----------
-    html_content
-        The HTML content to modify.
-    page_path
-        The page path relative to the site root.
-
-    Returns
-    -------
-    str
-        The modified HTML with noindex meta if applicable.
-    """
-    if not _gd_options.get("seo_enabled", False):
-        return html_content
-
-    # Check if noindex meta already exists
-    if 'name="robots"' in html_content:
-        return html_content
-
-    # Pages that should be noindexed by default
-    noindex_paths = ["skills.html"]
-
-    should_noindex = any(page_path == p or page_path.endswith("/" + p) for p in noindex_paths)
-
-    if should_noindex:
-        meta_tag = '<meta name="robots" content="noindex, nofollow">'
-        html_content = html_content.replace("</head>", f"  {meta_tag}\n</head>", 1)
-
-    return html_content
-
-
 def apply_seo_processing(html_content: str, page_path: str) -> str:
     """
     Apply all SEO processing to an HTML page.
@@ -288,7 +249,6 @@ def apply_seo_processing(html_content: str, page_path: str) -> str:
         The modified HTML with all SEO enhancements.
     """
     html_content = inject_json_ld(html_content, page_path)
-    html_content = inject_noindex_meta(html_content, page_path)
     return html_content
 
 
@@ -1713,7 +1673,7 @@ print("##GD:PASS:Markdown alternate links injected", flush=True)
 # ══════════════════════════════════════════════════════════════════════════════
 # SEO PROCESSING
 # ══════════════════════════════════════════════════════════════════════════════
-# Add JSON-LD structured data and mark internal pages with noindex.
+# Add JSON-LD structured data.
 
 if _gd_options.get("seo_enabled", False):
     print("\n🔍 Applying SEO enhancements to HTML files...")
