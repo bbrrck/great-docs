@@ -40027,6 +40027,41 @@ def test_generate_skills_page_basic():
         assert "gd-skills-raw" in content
         assert "````markdown" in content
 
+        front_matter = parse_yaml(content.split("---\n")[1])
+        assert front_matter["gd-head-tags"] == [
+            '`<meta name="robots" content="noindex, nofollow">`{=html}'
+        ]
+
+
+def test_generate_skills_page_omits_robots_tag_without_seo() -> None:
+    """Omit robots metadata from `skills.qmd` when SEO is disabled"""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        config_path = Path(tmp_dir) / "great-docs.yml"
+        config_path.write_text("seo:\n  enabled: false\n")
+
+        docs = GreatDocs(project_path=tmp_dir)
+
+        pyproject = Path(tmp_dir) / "pyproject.toml"
+        pyproject.write_text('[project]\nname = "test-package"\ndescription = "A test package"\n')
+
+        great_docs_dir = Path(tmp_dir) / "great-docs"
+        great_docs_dir.mkdir()
+        quarto_yml = great_docs_dir / "_quarto.yml"
+        quarto_yml.write_text(
+            "api-reference:\n"
+            "  package: test_package\n"
+            "  sections:\n"
+            "    - title: Main\n"
+            "      contents:\n"
+            "        - foo\n"
+        )
+
+        docs._generate_skill_md()
+
+        content = (great_docs_dir / "skills.qmd").read_text()
+        assert "gd-head-tags" not in content
+        assert "robots" not in content
+
 
 def test_generate_skills_page_github_repo_detection():
     """Test that GitHub owner/repo is auto-detected for install instructions."""
@@ -40139,10 +40174,9 @@ def test_generate_skills_page_frontmatter_display():
         assert "````markdown" in content
         assert "name: test-package" in content
 
-        # The Quarto frontmatter should only have "title: Skills"
-        lines = content.split("\n")
-        assert lines[0] == "---"
-        assert "title: Skills" in lines[1]
+        # Keep the Quarto title separate from the skill's name
+        assert content.startswith("---\n")
+        assert parse_yaml(content.split("---\n")[1])["title"] == "Skills"
 
 
 def test_generate_skills_page_curated_skill():

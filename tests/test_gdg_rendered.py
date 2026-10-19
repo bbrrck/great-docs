@@ -10919,6 +10919,19 @@ def test_DED_skill_default_skills_page_exists():
 
 
 @pytest.mark.dedicated
+def test_DED_skill_default_skills_page_noindex() -> None:
+    """Request no indexing for `skills.html` and leave `index.html` indexable"""
+    pkg = _SKILL_DEFAULT_PKG
+    if not _has_rendered_site(pkg):
+        pytest.skip(f"{pkg} not rendered")
+    robots_tag = '<meta name="robots" content="noindex, nofollow">'
+    skills_html = (_site_dir(pkg) / "skills.html").read_text(encoding="utf-8")
+    index_html = (_site_dir(pkg) / "index.html").read_text(encoding="utf-8")
+    assert skills_html.count(robots_tag) == 1
+    assert 'name="robots"' not in index_html
+
+
+@pytest.mark.dedicated
 def test_DED_skill_default_has_installation():
     """gdtest_skill_default: skill.md has Installation section."""
     pkg = _SKILL_DEFAULT_PKG
