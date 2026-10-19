@@ -200,6 +200,6 @@ def write_to_pages(
             content = head.add_tags(content, tags)
         if content == page.content:
             continue
-        path.write_text(content, encoding="utf-8")
+        _ = path.write_text(content, encoding="utf-8")
         changed.append(path)
     return changed

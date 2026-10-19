@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import html
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from yaml12 import format_yaml, parse_yaml
 
@@ -71,10 +71,10 @@ def add_tags(content: str, tags: list[str]) -> str:
         cannot be merged into a list in the generated YAML style.
     """
     closing_offset, front_matter = _front_matter(content)
-    existing = front_matter.get(HEAD_TAGS) if isinstance(front_matter, dict) else None
+    existing = front_matter.get(HEAD_TAGS) if front_matter is not None else None
     if existing is not None and not isinstance(existing, list):
         raise ValueError(f"`{HEAD_TAGS}` in the front matter is not a list")
-    existing_tags = existing or []
+    existing_tags = cast("list[Any]", existing or [])
     new_tags = list(
         dict.fromkeys(tag for tag in map(_raw_inline, tags) if tag not in existing_tags)
     )
@@ -95,7 +95,7 @@ def add_tags(content: str, tags: list[str]) -> str:
     return content[:block_offset] + new_block + content[block_offset + len(old_block) :]
 
 
-def _front_matter(content: str) -> tuple[int, Any]:
+def _front_matter(content: str) -> tuple[int, dict[str, Any] | None]:
     """
     Locate and parse a page's YAML front matter
 
@@ -109,7 +109,7 @@ def _front_matter(content: str) -> tuple[int, Any]:
     :
         The offset of the closing `---`, or 0 when the page has no front
         matter, and the parsed front matter, or `None`
-        when there is none or it is not valid YAML.
+        when there is none or it is not a valid YAML mapping.
     """
     if not content.startswith("---\n"):
         return 0, None
@@ -117,9 +117,10 @@ def _front_matter(content: str) -> tuple[int, Any]:
     if end == -1:
         return 0, None
     try:
-        return end + 1, parse_yaml(content[4 : end + 1])
+        parsed = parse_yaml(content[4 : end + 1])
     except ValueError:
         return end + 1, None
+    return end + 1, cast("dict[str, Any]", parsed) if isinstance(parsed, dict) else None
 
 
 def _raw_inline(markup: str) -> str:
@@ -141,17 +142,40 @@ def _raw_inline(markup: str) -> str:
     return f"{fence}{markup}{fence}{{=html}}"
 
 
-def search_includes(
-    includes: Any, base_dir: Path, pattern: re.Pattern[str]
-) -> re.Match[str] | None:
+def include_entries(value: object) -> list[str | dict[str, Any]]:
     """
-    Find the first match for `pattern` in an `include-in-header` value
+    List the entries of an `include-in-header` value
 
     Parameters
     ----------
-    includes
+    value
         An `include-in-header` value: a file path, an entry with `text` or
-        `file`, or a list of them.
+        `file`, a list of them, or `None`.
+
+    Returns
+    -------
+    :
+        The entries, with each file path as a string. Empty when `value` is
+        `None`, and without the `None` items of a list.
+    """
+    items = cast("list[object]", value) if isinstance(value, list) else [value]
+    return [
+        cast("dict[str, Any]", item) if isinstance(item, dict) else str(item)
+        for item in items
+        if item is not None
+    ]
+
+
+def search_includes(
+    entries: list[str | dict[str, Any]], base_dir: Path, pattern: re.Pattern[str]
+) -> re.Match[str] | None:
+    """
+    Find the first match for `pattern` in `include-in-header` entries
+
+    Parameters
+    ----------
+    entries
+        Header entries containing file paths, inline `text`, or a `file` path.
     base_dir
         Base directory for relative header file paths.
     pattern
@@ -162,14 +186,11 @@ def search_includes(
     :
         The match in an inline entry or a readable header file, or `None`.
     """
-    if not isinstance(includes, list):
-        includes = [includes]
-    for item in includes:
-        if isinstance(item, dict):
-            text = item.get("text")
-            path = item.get("file")
+    for entry in entries:
+        if isinstance(entry, str):
+            text, path = None, entry
         else:
-            text, path = None, item
+            text, path = entry.get("text"), entry.get("file")
         if text is None and path is not None:
             try:
                 text = (base_dir / str(path)).read_text(encoding="utf-8")
@@ -180,9 +201,9 @@ def search_includes(
     return None
 
 
-def site_includes(quarto_config: dict[str, Any]) -> Any:
+def site_includes(quarto_config: dict[str, Any]) -> list[str | dict[str, Any]]:
     """
-    Return the site's `include-in-header` value
+    List the site's `include-in-header` entries
 
     Parameters
     ----------
@@ -192,9 +213,9 @@ def site_includes(quarto_config: dict[str, Any]) -> Any:
     Returns
     -------
     :
-        The value, or an empty list when the site has none.
+        The entries, or an empty list when the site has none.
     """
-    return quarto_config.get("format", {}).get("html", {}).get("include-in-header", [])
+    return include_entries(quarto_config.get("format", {}).get("html", {}).get("include-in-header"))
 
 
 def includes_match(
@@ -242,17 +263,21 @@ def page_includes_match(
         `header-includes` matches.
     """
     page_format = front_matter.get("format")
-    html_format = page_format.get("html") if isinstance(page_format, dict) else None
+    html_format = (
+        cast("dict[str, Any]", page_format).get("html") if isinstance(page_format, dict) else None
+    )
     for includes in (
         front_matter.get("include-in-header"),
-        html_format.get("include-in-header") if isinstance(html_format, dict) else None,
+        cast("dict[str, Any]", html_format).get("include-in-header")
+        if isinstance(html_format, dict)
+        else None,
     ):
-        if includes is not None and search_includes(includes, page_dir, pattern):
+        if search_includes(include_entries(includes), page_dir, pattern):
             return True
     texts = front_matter.get("header-includes")
     if not isinstance(texts, list):
         texts = [texts]
-    return any(isinstance(text, str) and pattern.search(text) for text in texts)
+    return any(isinstance(text, str) and pattern.search(text) for text in cast("list[Any]", texts))
 
 
 def insert(html: str, tag: str, *, unless: str) -> str:

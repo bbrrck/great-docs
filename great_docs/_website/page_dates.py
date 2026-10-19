@@ -15,7 +15,7 @@ import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import unquote, urlsplit, urlunsplit
 
 from . import head
@@ -63,8 +63,7 @@ def head_tags(source: Path, config: Config, authors: list[dict[str, Any]]) -> li
     front_matter, _ = description.split_front_matter(source.read_text(encoding="utf-8"))
     front_matter = front_matter or {}
     last_update = front_matter.get("last_update")
-    if not isinstance(last_update, dict):
-        last_update = {}
+    last_update = cast("dict[str, Any]", last_update) if isinstance(last_update, dict) else {}
 
     modified = _iso_date(last_update.get("date")) or _git_date(source, "-1")
     if not modified:
@@ -138,7 +137,7 @@ def mark_generated(directory: Path, config: Config) -> None:
         Project configuration. Nothing is written when `show_dates` is off.
     """
     if config.show_dates:
-        (directory / "_metadata.yml").write_text(f"{AUTO_GENERATED}: true\n", encoding="utf-8")
+        _ = (directory / "_metadata.yml").write_text(f"{AUTO_GENERATED}: true\n", encoding="utf-8")
 
 
 def site_authors(config: Config, source_dir: Path, base_url: str | None) -> list[dict[str, Any]]:
@@ -165,7 +164,7 @@ def site_authors(config: Config, source_dir: Path, base_url: str | None) -> list
     for author in config.authors:
         portrait = _portrait(author, source_dir)
         if portrait is not None:
-            url = urlsplit(author["image"])
+            url = urlsplit(str(author["image"]))
             path = (base_url or "/") + (_PORTRAITS / portrait.name).as_posix()
             author = {**author, "image": urlunsplit(("", "", path, url.query, url.fragment))}
         authors.append(author)
@@ -202,7 +201,7 @@ def copy_portraits(config: Config, source_dir: Path, build_dir: Path) -> None:
                 raise ValueError(f"Author portraits share the file name {portrait.name!r}")
             continue
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(portrait, destination)
+        _ = shutil.copy2(portrait, destination)
 
 
 def _portrait(author: dict[str, Any], source_dir: Path) -> Path | None:
@@ -360,15 +359,13 @@ def _author(
         if isinstance(author, str):
             name = author
         elif isinstance(author, dict):
+            author = cast("dict[str, Any]", author)
             name = str(author.get("name") or "")
             image = str(author.get("image") or "")
             url = str(author.get("url") or "")
 
     if name and not image:
-        entry = next(
-            (a for a in authors if isinstance(a, dict) and a.get("name") == name),
-            {},
-        )
+        entry: dict[str, Any] = next((a for a in authors if a.get("name") == name), None) or {}
         homepage = str(entry.get("homepage") or "")
         image = str(entry.get("image") or "")
         if not image:
