@@ -6262,14 +6262,21 @@ class GreatDocs:
         package_description = self._get_package_metadata().get("description")
         return seo_description.default_description(self._config, package_description)
 
-    def _write_page_metadata(self) -> None:
+    def _write_page_metadata(self, watch: bool = False) -> None:
         """
         Write front matter entries and `<head>` tags into the build directory's pages
 
         Run after generating all pages and before rendering.
+
+        Parameters
+        ----------
+        watch
+            Whether Quarto previews the build directory itself. A versioned
+            site then skips its per-version pipeline, so its pages are written
+            here too.
         """
         # Versioned pages need descriptions from their resolved content.
-        if self._config.has_versions:
+        if self._config.has_versions and not watch:
             return
         quarto_config = self._read_quarto_config(self.build_dir / "_quarto.yml")
         page_metadata.write_to_pages(
@@ -16959,7 +16966,7 @@ anchor-sections: true
 
             # Normalize page-level freeze shorthand before Quarto render
             frozen_pages = self._normalize_freeze_shorthand()
-            self._write_page_metadata()
+            self._write_page_metadata(watch)
             has_freeze_cache = self.layout.freeze_dir.is_dir()
 
             if frozen_pages or has_freeze_cache:

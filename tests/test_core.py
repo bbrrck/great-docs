@@ -2730,6 +2730,18 @@ class TestPageDescriptions:
 
         assert "description-meta" not in page.read_text(encoding="utf-8")
 
+    def test_versioned_sites_are_described_when_watching(self, tmp_path, monkeypatch):
+        gd = self._gd(tmp_path, monkeypatch)
+        _patch_cfg(monkeypatch, gd, "has_versions", True)
+        page = gd.build_dir / "guide.qmd"
+        page.write_text(f"---\nscale-to-fit: [.wide]\n---\n\n{self.LONG}\n", encoding="utf-8")
+
+        gd._write_page_metadata(watch=True)
+
+        content = page.read_text(encoding="utf-8")
+        assert "description-meta" in content
+        assert "gd-scale-to-fit-page" in content
+
     def test_default_falls_back_to_the_package_description(self, tmp_path, monkeypatch):
         gd = self._gd(tmp_path, monkeypatch, default=None)
         monkeypatch.setattr(
