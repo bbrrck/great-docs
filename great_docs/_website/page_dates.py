@@ -1,8 +1,8 @@
 """
 Date and author metadata for copied and generated pages
 
-Copied pages store their dates and author as inline raw HTML tags in front
-matter. Generated pages store a marker and display the site build time.
+Copied pages carry their dates and author as `<head>` tags in front matter.
+Generated pages store a marker and display the site build time.
 Keeping that timestamp out of each generated page preserves its source
 between builds, so Quarto can reuse frozen execution results.
 """
@@ -18,14 +18,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlsplit, urlunsplit
 
-from . import page_metadata
+from . import head
 from .seo import description
 
 if TYPE_CHECKING:
     from ..config import Config
-
-HEAD_TAGS = "gd-head-tags"
-"""Front matter key for a copied page's date and author tags"""
 
 AUTO_GENERATED = "gd-auto-generated"
 """Front matter key for pages that display the site build time"""
@@ -57,8 +54,8 @@ def head_tags(source: Path, config: Config, authors: list[dict[str, Any]]) -> li
     Returns
     -------
     :
-        Inline raw HTML tags for Quarto Markdown, or an empty list when
-        `show_dates` is off or the source file is missing.
+        `<meta>` elements, or an empty list when `show_dates` is off or the
+        source file is missing.
     """
     if not config.show_dates or not source.is_file():
         return []
@@ -78,16 +75,12 @@ def head_tags(source: Path, config: Config, authors: list[dict[str, Any]]) -> li
     if config.show_author:
         values.update(_author(front_matter, last_update, authors))
 
-    return [
-        f'`<meta name="{name}" content="{_attribute(value)}">`{{=html}}'
-        for name, value in values.items()
-        if value
-    ]
+    return [head.meta_element(name, value) for name, value in values.items() if value]
 
 
 def partial_lines(build_time: str) -> str:
     """
-    Build template lines for page dates and the site build time
+    Build template lines for generated pages and the site build time
 
     Parameters
     ----------
@@ -97,12 +90,11 @@ def partial_lines(build_time: str) -> str:
     Returns
     -------
     :
-        Template lines for copied page tags, the marker for generated pages
-        and the site build time.
+        Template lines for the marker of generated pages and the site build
+        time.
     """
     build_time = html.escape(build_time, quote=True).replace("$", "$$")
     return (
-        f"$for({HEAD_TAGS})$\n${HEAD_TAGS}$\n$endfor$\n"
         f"$if({AUTO_GENERATED})$\n"
         f'<meta name="{AUTO_GENERATED}" content="true">\n'
         "$endif$\n"
@@ -112,7 +104,7 @@ def partial_lines(build_time: str) -> str:
 
 def add_to_page(content: str, source: Path, config: Config, authors: list[dict[str, Any]]) -> str:
     """
-    Add date and author tags to a copied page's front matter
+    Add date and author tags to the `<head>` of a copied page
 
     Parameters
     ----------
@@ -131,10 +123,7 @@ def add_to_page(content: str, source: Path, config: Config, authors: list[dict[s
         The page with date and author tags, or the original content when
         `show_dates` is off or the source file is missing.
     """
-    tags = head_tags(source, config, authors)
-    if not tags:
-        return content
-    return page_metadata.add_to_page(content, {HEAD_TAGS: tags})
+    return head.add_tags(content, head_tags(source, config, authors))
 
 
 def mark_generated(directory: Path, config: Config) -> None:
@@ -241,24 +230,6 @@ def _portrait(author: dict[str, Any], source_dir: Path) -> Path | None:
         return None
     portrait = (source_dir / unquote(url.path)).resolve()
     return portrait if portrait.is_file() else None
-
-
-def _attribute(value: str) -> str:
-    """
-    Escape a value for an attribute inside an inline raw HTML span
-
-    Parameters
-    ----------
-    value
-        The attribute value.
-
-    Returns
-    -------
-    :
-        The escaped value. Encode backticks as character references so they
-        cannot end the raw HTML span.
-    """
-    return html.escape(value, quote=True).replace("`", "&#96;")
 
 
 def _iso_date(value: object) -> str:

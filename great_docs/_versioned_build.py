@@ -1644,7 +1644,7 @@ def expand_version_callouts(content: str, entry: VersionEntry) -> str:
 
 def _write_page_metadata(dest_dir: Path, config: Config, default: str | None) -> None:
     """
-    Write search descriptions and social card options into a version's pages
+    Write front matter entries and `<head>` tags into a version's pages
 
     Run after resolving version fences to describe each version's content.
 

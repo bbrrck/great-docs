@@ -10,7 +10,7 @@ import pytest
 from yaml12 import parse_yaml
 
 from great_docs._website import social_cards
-from great_docs._website.page_metadata import add_to_page, write_to_pages
+from great_docs._website.page_metadata import Page, add_to_page, write_to_pages
 from great_docs._website.seo.description import split_front_matter
 from great_docs.config import Config
 
@@ -54,6 +54,20 @@ def test_add_to_page_quotes_yaml():
     entries = {"description-meta": "Colon: and \\*star", "open-graph": {"title": "A: B"}}
     front_matter, _ = split_front_matter(add_to_page("Body\n", entries))
     assert front_matter == entries
+
+
+def test_page_reads_front_matter_and_output_path(tmp_path: Path) -> None:
+    index = _write(tmp_path, "reference/index.qmd", "---\ntitle: R\n---\n\nBody\n")
+    guide = _write(tmp_path, "guide.md", "Guide\n")
+
+    page = Page.make(index, tmp_path)
+    assert (page.output_path, page.front_matter, page.body) == (
+        "reference/index.html",
+        {"title": "R"},
+        "\nBody\n",
+    )
+    page = Page.make(guide, tmp_path)
+    assert (page.output_path, page.front_matter, page.body) == ("guide.html", {}, "Guide\n")
 
 
 def test_writes_only_pages_quarto_renders(tmp_path: Path):
@@ -226,8 +240,8 @@ def test_written_front_matter_parses(tmp_path: Path):
 @pytest.mark.parametrize(
     "include",
     [
-        "include-in-header:\n  text: '<meta property=\"og:title\" content=\"Mine\">'",
-        "header-includes: |\n  <meta property=\"og:title\" content=\"Mine\">",
+        'include-in-header:\n  text: \'<meta property="og:title" content="Mine">\'',
+        'header-includes: |\n  <meta property="og:title" content="Mine">',
         "include-in-header: head.html",
     ],
 )

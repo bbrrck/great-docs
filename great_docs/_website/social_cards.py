@@ -184,7 +184,8 @@ def declares_own_tags(front_matter: dict[str, Any], page_dir: Path) -> bool:
 
 
 def page_entries(
-    content: str,
+    front_matter: dict[str, Any],
+    body: str,
     page_dir: Path,
     site_name: str | None,
     config: Config,
@@ -196,8 +197,10 @@ def page_entries(
 
     Parameters
     ----------
-    content
-        The page source.
+    front_matter
+        The page's parsed front matter, empty when it has none.
+    body
+        The page source after the front matter.
     page_dir
         Directory holding the page.
     site_name
@@ -218,8 +221,6 @@ def page_entries(
         Empty when the page sets either card key itself or there is nothing to
         write.
     """
-    front_matter, _ = description.split_front_matter(content)
-    front_matter = front_matter or {}
     if any(key in front_matter for key in PAGE_KEYS):
         return {}
     if declares_own_tags(front_matter, page_dir):
@@ -239,7 +240,7 @@ def page_entries(
     elif header_description and "description" not in front_matter:
         value = header_description
     else:
-        value = description.page_description(content, default)
+        value = description.page_description(front_matter, body, default)
     if value:
         card["description"] = value
     return {"open-graph": card, "twitter-card": dict(card)} if card else {}

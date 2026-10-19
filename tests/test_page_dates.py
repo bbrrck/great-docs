@@ -174,7 +174,7 @@ def test_author_name_is_escaped(tmp_path: Path):
     tags = _tags(page, _config(tmp_path))
 
     assert tags["gd-page-author"] == (
-        '`<meta name="gd-page-author" content="O&#x27;Brien &amp; &quot;Co&quot;">`{=html}'
+        '<meta name="gd-page-author" content="O&#x27;Brien &amp; &quot;Co&quot;">'
     )
 
 
