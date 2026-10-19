@@ -289,7 +289,7 @@ class TestPreprocessVersion:
         for i, entry in enumerate(versions[:2]):
             dest = tmp_path / f"build{i}"
             preprocess_version(source, dest, entry, versions, config=config)
-            _write_page_metadata(dest, config, None)
+            _write_page_metadata(dest, config, None, None)
             front_matter = (dest / "page.qmd").read_text().split("---")[1]
             descriptions.append(parse_yaml(front_matter)["description-meta"])
 

@@ -21,6 +21,7 @@ from .seo import description
 
 if TYPE_CHECKING:
     from ..config import Config
+    from .seo.structured_data import StructuredData
 
 
 def rendered_pages(project_dir: Path, quarto_config: dict[str, Any]) -> Iterator[Path]:
@@ -123,7 +124,11 @@ def add_to_page(content: str, entries: dict[str, Any]) -> str:
 
 
 def write_to_pages(
-    project_dir: Path, quarto_config: dict[str, Any], config: Config, default: str | None
+    project_dir: Path,
+    quarto_config: dict[str, Any],
+    config: Config,
+    default: str | None,
+    structured_data: StructuredData | None = None,
 ) -> list[Path]:
     """
     Write search descriptions and social card options into rendered pages
@@ -134,7 +139,9 @@ def write_to_pages(
     neither key. Skip each kind of metadata if the site's header includes
     already supply it. A page whose own header includes declare Open Graph
     tags gets options that switch the generated ones off. Add a scale-to-fit
-    `<head>` tag for selectors resolved from page and directory metadata.
+    `<head>` tag for selectors resolved from page and directory metadata. Add
+    the supplied JSON-LD to the homepage and reference pages unless the site's
+    header includes or the page source already contain it.
 
     Parameters
     ----------
@@ -147,6 +154,8 @@ def write_to_pages(
         Project configuration.
     default
         The site's default description as plain text.
+    structured_data
+        The JSON-LD to add, or `None` when structured data is disabled.
 
     Returns
     -------
@@ -158,6 +167,8 @@ def write_to_pages(
     site_name = quarto_config.get("website", {}).get("title")
     header_description = description.header_description(quarto_config, project_dir)
     overrides = scale_to_fit.Overrides.make(project_dir)
+    if structured_data and not structured_data.applies(quarto_config, project_dir):
+        structured_data = None
 
     changed: list[Path] = []
     for path in rendered_pages(project_dir, quarto_config):
@@ -181,6 +192,8 @@ def write_to_pages(
             )
         tags: list[str] = []
         if tag := overrides.tag(page):
+            tags.append(tag)
+        if structured_data and (tag := structured_data.tag(page)):
             tags.append(tag)
         if not (entries or tags):
             continue

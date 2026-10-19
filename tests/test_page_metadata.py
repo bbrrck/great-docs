@@ -9,10 +9,10 @@ from pathlib import Path
 import pytest
 from yaml12 import parse_yaml
 
-from great_docs._website import social_cards
-from great_docs._website.head import HEAD_TAGS
+from great_docs._website import head, social_cards
 from great_docs._website.page_metadata import Page, add_to_page, write_to_pages
 from great_docs._website.seo.description import split_front_matter
+from great_docs._website.seo.structured_data import StructuredData
 from great_docs.config import Config
 
 LONG = "This sentence is comfortably longer than thirty characters."
@@ -279,7 +279,79 @@ def test_scale_to_fit_tag_from_directory_metadata(tmp_path: Path) -> None:
     other = _write(tmp_path, "other/b.qmd", f"---\ntitle: B\n---\n\n{LONG}\n")
 
     assert write_to_pages(tmp_path, SITE, config, None) == [guide]
-    assert _front_matter(guide)[HEAD_TAGS] == [
+    assert _front_matter(guide)[head.HEAD_TAGS] == [
         '`<meta name="gd-scale-to-fit-page" data-selectors="[&quot;.wide&quot;]">`{=html}'
     ]
     assert other.read_text() == f"---\ntitle: B\n---\n\n{LONG}\n"
+
+
+def _structured_data(tmp_path: Path) -> StructuredData:
+    (tmp_path / "data").mkdir(exist_ok=True)
+    data = StructuredData.make(_config(tmp_path / "data"), {"description": "Pkg"}, "Pkg", None)
+    assert data is not None
+    return data
+
+
+def _json_ld(path: Path) -> list[str]:
+    tags = _front_matter(path).get(head.HEAD_TAGS, [])
+    return [tag for tag in tags if "application/ld+json" in tag]
+
+
+@pytest.fixture
+def json_ld_config(tmp_path: Path) -> Config:
+    return _config(tmp_path, "seo:\n  enabled: false\nsocial_cards: false\n")
+
+
+def test_json_ld_on_the_homepage_and_reference_pages(
+    tmp_path: Path, json_ld_config: Config
+) -> None:
+    index = _write(tmp_path, "index.qmd", "Home\n")
+    reference = _write(tmp_path, "reference/foo.qmd", "Foo\n")
+    guide = _write(tmp_path, "user-guide/intro.qmd", "Intro\n")
+
+    write_to_pages(tmp_path, SITE, json_ld_config, None, _structured_data(tmp_path))
+
+    assert len(_json_ld(index)) == len(_json_ld(reference)) == 1
+    assert _json_ld(guide) == []
+
+
+def test_json_ld_follows_existing_head_tags(tmp_path: Path, json_ld_config: Config) -> None:
+    first = '<meta name="a" content="b">'
+    index = _write(tmp_path, "index.qmd", head.add_tags("Home\n", [first]))
+
+    write_to_pages(tmp_path, SITE, json_ld_config, None, _structured_data(tmp_path))
+
+    tags = _front_matter(index)[head.HEAD_TAGS]
+    assert len(tags) == 2
+    assert first in tags[0]
+    assert "application/ld+json" in tags[1]
+
+
+def test_no_json_ld_on_a_page_with_its_own(tmp_path: Path, json_ld_config: Config) -> None:
+    text = '```{=html}\n<script type="application/ld+json">{}</script>\n```\n'
+    index = _write(tmp_path, "index.qmd", text)
+
+    assert write_to_pages(tmp_path, SITE, json_ld_config, None, _structured_data(tmp_path)) == []
+    assert index.read_text() == text
+
+
+def test_no_json_ld_when_the_site_header_has_it(tmp_path: Path, json_ld_config: Config) -> None:
+    _write(tmp_path, "index.qmd", "Home\n")
+    _write(tmp_path, "reference/foo.qmd", "Foo\n")
+    include = {"text": '<script type="application/ld+json">{}</script>'}
+    quarto_config = {**SITE, "format": {"html": {"include-in-header": [include]}}}
+
+    assert (
+        write_to_pages(tmp_path, quarto_config, json_ld_config, None, _structured_data(tmp_path))
+        == []
+    )
+
+
+def test_json_ld_written_once(tmp_path: Path, json_ld_config: Config) -> None:
+    index = _write(tmp_path, "index.qmd", "---\ntitle: Home\n---\n\nHome\n")
+    data = _structured_data(tmp_path)
+
+    write_to_pages(tmp_path, SITE, json_ld_config, None, data)
+    first = index.read_text()
+    assert write_to_pages(tmp_path, SITE, json_ld_config, None, data) == []
+    assert index.read_text() == first

@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from great_docs._interlinks import AliasClaims
     from great_docs._interlinks.sphinx_inventory import InventoryEntry
     from great_docs._layout import Layout
+    from great_docs._website.seo.structured_data import StructuredData
     from great_docs.config import Config
 
 # ---------------------------------------------------------------------------
@@ -1642,7 +1643,12 @@ def expand_version_callouts(content: str, entry: VersionEntry) -> str:
     return result
 
 
-def _write_page_metadata(dest_dir: Path, config: Config, default: str | None) -> None:
+def _write_page_metadata(
+    dest_dir: Path,
+    config: Config,
+    default: str | None,
+    structured_data: StructuredData | None,
+) -> None:
     """
     Write front matter entries and `<head>` tags into a version's pages
 
@@ -1661,12 +1667,15 @@ def _write_page_metadata(dest_dir: Path, config: Config, default: str | None) ->
         Project configuration.
     default
         The site's default description as plain text.
+    structured_data
+        The JSON-LD for the homepage and reference pages, or `None` when
+        structured data is disabled.
     """
     from yaml12 import read_yaml
 
     quarto_yml = dest_dir / "_quarto.yml"
     quarto_config = read_yaml(quarto_yml) if quarto_yml.exists() else {}
-    page_metadata.write_to_pages(dest_dir, quarto_config or {}, config, default)
+    page_metadata.write_to_pages(dest_dir, quarto_config or {}, config, default, structured_data)
 
 
 def _rewrite_quarto_yml_for_version(
@@ -2129,6 +2138,7 @@ def run_versioned_build(  # pragma: no cover
     config: Config | None = None,
     layout: Layout | None = None,
     default_description: str | None = None,
+    structured_data: StructuredData | None = None,
 ) -> dict[str, Any]:
     """
     Build and assemble the configured documentation versions
@@ -2163,6 +2173,9 @@ def run_versioned_build(  # pragma: no cover
         Resolved project paths.
     default_description
         The site's default search description as plain text.
+    structured_data
+        The JSON-LD for each version's homepage and reference pages, or
+        `None` when structured data is disabled.
 
     Returns
     -------
@@ -2244,7 +2257,7 @@ def run_versioned_build(  # pragma: no cover
             config=config,
         )
         if config is not None:
-            _write_page_metadata(ver_dir, config, default_description)
+            _write_page_metadata(ver_dir, config, default_description, structured_data)
         _prune_missing_sidebar_pages(ver_dir)
         _rewrite_quarto_yml_for_version(ver_dir, entry, latest_tag)
         _sync_status_inline_script(ver_dir)

@@ -33,6 +33,7 @@ from ._website.navigation import label as nav_label
 from ._website.seo import description as seo_description
 from ._website.seo import noindex
 from ._website.seo import title as seo_title
+from ._website.seo.structured_data import StructuredData
 from .config import Config, create_default_config
 
 if TYPE_CHECKING:
@@ -660,8 +661,6 @@ class GreatDocs:
         from ._translations import get_translations_bundle
 
         gd_options["i18n"] = get_translations_bundle(self._config.lang)
-        # Add SEO options
-        gd_options.update(self._get_seo_options())
         gd_options_path = self.build_dir / "_gd_options.json"
         with open(gd_options_path, "w") as f:
             json.dump(gd_options, f)
@@ -4162,6 +4161,7 @@ class GreatDocs:
         card_image_url = (
             self._resolve_social_card_image_url() if self._config.social_cards_enabled else None
         )
+        structured_data = self._structured_data()
 
         for source in sources:
             source_dir = source["source_dir"]
@@ -4214,6 +4214,8 @@ class GreatDocs:
                         url=raw_url,
                         image_url=card_image_url,
                     )
+                    if structured_data:
+                        body = structured_data.add_to_raw_page(body, output_rel_path.as_posix())
                     dest_path.write_text(body, encoding="utf-8")
                     raw_resource = output_rel_path.as_posix()
                     resources_to_add.append(raw_resource)
@@ -6262,6 +6264,22 @@ class GreatDocs:
         package_description = self._get_package_metadata().get("description")
         return seo_description.default_description(self._config, package_description)
 
+    def _structured_data(self) -> StructuredData | None:
+        """
+        Describe the package as JSON-LD for the homepage and reference pages
+
+        Returns
+        -------
+        :
+            The structured data, or `None` when it is disabled.
+        """
+        return StructuredData.make(
+            self._config,
+            self._get_package_metadata(),
+            self._get_site_name(),
+            self._get_canonical_base_url(),
+        )
+
     def _write_page_metadata(self, watch: bool = False) -> None:
         """
         Write front matter entries and `<head>` tags into the build directory's pages
@@ -6280,7 +6298,11 @@ class GreatDocs:
             return
         quarto_config = self._read_quarto_config(self.build_dir / "_quarto.yml")
         page_metadata.write_to_pages(
-            self.build_dir, quarto_config, self._config, self._default_description()
+            self.build_dir,
+            quarto_config,
+            self._config,
+            self._default_description(),
+            self._structured_data(),
         )
 
     def _normalize_freeze_shorthand(self) -> list[str]:
@@ -15658,30 +15680,6 @@ anchor-sections: true
             partials.append("metadata.html")
         html_config["template-partials"] = partials
 
-    def _get_seo_options(self) -> dict:
-        """
-        Get SEO options for the post-render script.
-
-        Returns
-        -------
-        dict
-            SEO configuration to be written to _gd_options.json.
-        """
-        metadata = self._get_package_metadata()
-
-        return {
-            "seo_enabled": self._config.seo_enabled,
-            "canonical_base_url": self._get_canonical_base_url(),
-            "structured_data_enabled": self._config.structured_data_enabled,
-            "structured_data_type": self._config.structured_data_type,
-            "package_name": self._detect_package_name() or "",
-            "package_description": metadata.get("description", ""),
-            "package_license": metadata.get("license", ""),
-            "package_version": metadata.get("version", ""),
-            "repo_url": metadata.get("urls", {}).get("Repository", ""),
-            "site_name": self._get_site_name(),
-        }
-
     def _prerender_term_player(self, log) -> None:  # pragma: no cover
         """Pre-render .termshow recordings into SVG keyframes + manifest.json.
 
@@ -17063,6 +17061,7 @@ anchor-sections: true
                     config=self._config,
                     layout=self.layout,
                     default_description=self._default_description(),
+                    structured_data=self._structured_data(),
                 )
 
                 for warning in vb_result.get("warnings", []):

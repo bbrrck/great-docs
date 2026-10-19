@@ -220,6 +220,41 @@ def includes_match(
     return search_includes(site_includes(quarto_config), project_dir, pattern) is not None
 
 
+def page_includes_match(
+    front_matter: dict[str, Any], page_dir: Path, pattern: re.Pattern[str]
+) -> bool:
+    """
+    Check whether a page's own header includes contain a match for `pattern`
+
+    Parameters
+    ----------
+    front_matter
+        The page's front matter.
+    page_dir
+        Base directory for the page's relative header file paths.
+    pattern
+        The markup to look for.
+
+    Returns
+    -------
+    :
+        `True` when its `include-in-header`, its `format.html` one, or its
+        `header-includes` matches.
+    """
+    page_format = front_matter.get("format")
+    html_format = page_format.get("html") if isinstance(page_format, dict) else None
+    for includes in (
+        front_matter.get("include-in-header"),
+        html_format.get("include-in-header") if isinstance(html_format, dict) else None,
+    ):
+        if includes is not None and search_includes(includes, page_dir, pattern):
+            return True
+    texts = front_matter.get("header-includes")
+    if not isinstance(texts, list):
+        texts = [texts]
+    return any(isinstance(text, str) and pattern.search(text) for text in texts)
+
+
 def insert(html: str, tag: str, *, unless: str) -> str:
     """
     Insert a tag at the end of a page's `<head>`
