@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from yaml12 import format_yaml
 
-from . import head, social_cards
+from . import head, scale_to_fit, social_cards
 from .seo import description
 
 if TYPE_CHECKING:
@@ -133,7 +133,8 @@ def write_to_pages(
     are enabled, add `open-graph` and `twitter-card` options to pages that set
     neither key. Skip each kind of metadata if the site's header includes
     already supply it. A page whose own header includes declare Open Graph
-    tags gets options that switch the generated ones off.
+    tags gets options that switch the generated ones off. Add a scale-to-fit
+    `<head>` tag for selectors resolved from page and directory metadata.
 
     Parameters
     ----------
@@ -156,6 +157,7 @@ def write_to_pages(
     write_cards = social_cards.applies(quarto_config, config, project_dir)
     site_name = quarto_config.get("website", {}).get("title")
     header_description = description.header_description(quarto_config, project_dir)
+    overrides = scale_to_fit.Overrides.make(project_dir)
 
     changed: list[Path] = []
     for path in rendered_pages(project_dir, quarto_config):
@@ -177,10 +179,12 @@ def write_to_pages(
                     header_description,
                 )
             )
-        if not entries:
+        tags: list[str] = []
+        if tag := overrides.tag(page):
+            tags.append(tag)
+        if not (entries or tags):
             continue
-        content = add_to_page(page.content, entries)
-        # Validate existing head tags even though this pass adds none.
-        path.write_text(head.add_tags(content, []), encoding="utf-8")
+        content = add_to_page(page.content, entries) if entries else page.content
+        path.write_text(head.add_tags(content, tags), encoding="utf-8")
         changed.append(path)
     return changed

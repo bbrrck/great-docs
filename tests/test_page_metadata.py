@@ -10,6 +10,7 @@ import pytest
 from yaml12 import parse_yaml
 
 from great_docs._website import social_cards
+from great_docs._website.head import HEAD_TAGS
 from great_docs._website.page_metadata import Page, add_to_page, write_to_pages
 from great_docs._website.seo.description import split_front_matter
 from great_docs.config import Config
@@ -269,3 +270,16 @@ def test_cards_reuse_a_header_description(tmp_path: Path):
     front_matter = _front_matter(page)
     assert "description-meta" not in front_matter
     assert front_matter["open-graph"]["description"] == "From the header & \\*more\\*"
+
+
+def test_scale_to_fit_tag_from_directory_metadata(tmp_path: Path) -> None:
+    config = _config(tmp_path, "seo:\n  enabled: false\nsocial_cards: false\n")
+    _write(tmp_path, "guide/_metadata.yml", 'scale-to-fit: [".wide"]\n')
+    guide = _write(tmp_path, "guide/a.md", f"{LONG}\n")
+    other = _write(tmp_path, "other/b.qmd", f"---\ntitle: B\n---\n\n{LONG}\n")
+
+    assert write_to_pages(tmp_path, SITE, config, None) == [guide]
+    assert _front_matter(guide)[HEAD_TAGS] == [
+        '`<meta name="gd-scale-to-fit-page" data-selectors="[&quot;.wide&quot;]">`{=html}'
+    ]
+    assert other.read_text() == f"---\ntitle: B\n---\n\n{LONG}\n"
