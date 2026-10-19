@@ -209,3 +209,20 @@ def test_partial_omits_og_type_without_social_cards(tmp_path: Path):
 
     partial = (docs.build_dir / "metadata.html").read_text(encoding="utf-8")
     assert "og:type" not in partial
+
+
+def test_show_dates_registers_partial(tmp_path: Path):
+    """
+    Register a date metadata partial when SEO and social cards are disabled
+
+    The bundled partial has no date tags. Enabling dates requires a custom
+    partial even for English sites with no other metadata options enabled.
+    """
+    docs, config = _write_partial(
+        tmp_path, "show_dates: true\nseo:\n  enabled: false\nsocial_cards: false\n"
+    )
+
+    partial = (docs.build_dir / "metadata.html").read_text(encoding="utf-8")
+    assert config["format"]["html"]["template-partials"] == ["metadata.html"]
+    assert "$for(gd-head-tags)$" in partial
+    assert partial.count('<meta name="gd-build-time" content="') == 1

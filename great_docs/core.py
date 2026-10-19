@@ -28,7 +28,7 @@ from ._utils import (
     validate_layout_outputs,
     validate_tree_symlinks,
 )
-from ._website import i18n, page_metadata, page_url, social_cards
+from ._website import i18n, page_dates, page_metadata, page_url, social_cards
 from ._website.navigation import label as nav_label
 from ._website.seo import description as seo_description
 from ._website.seo import title as seo_title
@@ -262,6 +262,9 @@ class GreatDocs:
         self._griffe_pkg_cache: dict | None = None  # {normalized_name: griffe Package}
         self._cached_exports: list | None = None
         self._cached_package_name: str | None = None
+        self._page_authors = page_dates.site_authors(
+            self._config, self.layout.source_dir, self._get_canonical_base_url()
+        )
 
         # Set environment variables needed by the qrenderer
         _, _, url = self._get_github_repo_info()
@@ -392,6 +395,8 @@ class GreatDocs:
 
         reference_dir = self.build_dir / "reference"
         reference_dir.mkdir(exist_ok=True)
+        # Directory metadata also marks reference pages generated from older snapshots.
+        page_dates.mark_generated(reference_dir, self._config)
 
         # Copy post-render script
         post_render_src = self.assets_path / "post-render.py"
@@ -643,16 +648,12 @@ class GreatDocs:
         # Create _quarto.yml configuration
         self._update_quarto_config()
 
+        page_dates.copy_portraits(self._config, self.layout.source_dir, self.build_dir)
+
         # Write options JSON for the post-render script
         gd_options = {
             "freeze_dir": os.path.relpath(self.layout.freeze_dir, self.build_dir),
             "markdown_pages": self._config.markdown_pages,
-            "show_dates": self._config.show_dates,
-            "date_format": self._config.date_format,
-            "show_author": self._config.show_author,
-            "team_author": self._prepare_author_image(self._config.team_author),
-            "authors": [self._prepare_author_image(author) for author in self._config.authors],
-            "build_timestamp": datetime.now().isoformat(),
         }
         # Add i18n translations bundle
         from ._translations import get_translations_bundle
@@ -676,25 +677,6 @@ class GreatDocs:
         # build will generate them.
         self._create_index_from_readme(force_rebuild=True)
 
-    def _prepare_author_image(self, author: dict | None) -> dict | None:
-        """
-        Make a local author portrait available from every generated page
-        """
-        if not author or not isinstance(author.get("image"), str):
-            return author
-        reference = author["image"]
-        url = urlsplit(reference)
-        if url.scheme or url.netloc or not url.path:
-            return author
-        source = (self.layout.source_dir / unquote(url.path)).resolve()
-        if not source.is_file():
-            return author
-        destination = self.build_dir / "_shared" / "authors" / source.name
-        self._copy_source_asset(source, destination)
-        base = self._get_canonical_base_url() or "/"
-        image = base + destination.relative_to(self.build_dir).as_posix()
-        return {**author, "image": urlunsplit(("", "", image, url.query, url.fragment))}
-
     def _copy_user_guide_files(self) -> None:
         """
         Copy user guide files from project root to build directory.
@@ -714,9 +696,12 @@ class GreatDocs:
             for pattern in ["*.qmd", "*.md"]:
                 for file_path in source_user_guide.glob(pattern):
                     destination = dest_user_guide / file_path.name
+                    content = self._rebase_source_references(
+                        file_path.read_text(encoding="utf-8"), file_path, destination
+                    )
                     destination.write_text(
-                        self._rebase_source_references(
-                            file_path.read_text(encoding="utf-8"), file_path, destination
+                        page_dates.add_to_page(
+                            content, file_path, self._config, self._page_authors
                         ),
                         encoding="utf-8",
                     )
@@ -2362,6 +2347,7 @@ class GreatDocs:
         lines: list[str] = [
             "---",
             'title: "Changelog"',
+            f"{page_dates.AUTO_GENERATED}: true",
             "toc: true",
             "toc-depth: 2",
             "---",
@@ -3437,7 +3423,10 @@ class GreatDocs:
                     except ValueError:  # pragma: no cover
                         pass  # pragma: no cover
 
-            dest_file.write_text(content, encoding="utf-8")
+            dest_file.write_text(
+                page_dates.add_to_page(content, src_file, self._config, self._page_authors),
+                encoding="utf-8",
+            )
 
             copied.append(
                 {
@@ -3520,7 +3509,10 @@ class GreatDocs:
                     except ValueError:
                         pass
 
-            dest_file.write_text(content, encoding="utf-8")
+            dest_file.write_text(
+                page_dates.add_to_page(content, src_file, self._config, self._page_authors),
+                encoding="utf-8",
+            )
 
             copied.append(
                 {
@@ -4232,6 +4224,8 @@ class GreatDocs:
                     qmd_frontmatter.pop("layout", None)
                     qmd_frontmatter.setdefault("title", page_title)
                     qmd_frontmatter.setdefault("bread-crumbs", False)
+                    if tags := page_dates.head_tags(src_path, self._config, self._page_authors):
+                        qmd_frontmatter[page_dates.HEAD_TAGS] = tags
                     qmd_body = body if body.endswith("\n") else f"{body}\n"
                     qmd_content = f"---\n{format_yaml(qmd_frontmatter)}\n---\n\n{qmd_body}"
                     qmd_path.write_text(qmd_content, encoding="utf-8")
@@ -5936,6 +5930,11 @@ class GreatDocs:
 
             # Add bread-crumbs: false to frontmatter
             content = self._add_frontmatter_option(content, "bread-crumbs", False)
+            # The page promoted to the homepage shows no dates
+            if reference_destination != self.build_dir / "index.qmd":
+                content = page_dates.add_to_page(
+                    content, src_path, self._config, self._page_authors
+                )
 
             # Write to destination
             with open(dst_path, "w", encoding="utf-8") as f:
@@ -10762,7 +10761,14 @@ title: "Contributing"
 {contributing_content}
 """
             with open(contributing_qmd, "w", encoding="utf-8") as f:
-                f.write(contributing_qmd_content)
+                f.write(
+                    page_dates.add_to_page(
+                        contributing_qmd_content,
+                        contributing_path,
+                        self._config,
+                        self._page_authors,
+                    )
+                )
 
         if coc_path.exists():
             community_items.append(
@@ -10783,7 +10789,11 @@ title: "Code of Conduct"
 {coc_content}
 """
             with open(coc_qmd, "w", encoding="utf-8") as f:
-                f.write(coc_qmd_content)
+                f.write(
+                    page_dates.add_to_page(
+                        coc_qmd_content, coc_path, self._config, self._page_authors
+                    )
+                )
 
         # Check for SECURITY.md in root or .github directory
         security_path = package_root / "SECURITY.md"
@@ -10810,7 +10820,11 @@ title: "Roadmap"
 {roadmap_content}
 """
             with open(roadmap_qmd, "w", encoding="utf-8") as f:
-                f.write(roadmap_qmd_content)
+                f.write(
+                    page_dates.add_to_page(
+                        roadmap_qmd_content, roadmap_path, self._config, self._page_authors
+                    )
+                )
 
         if security_path.exists() and self._config.show_security:
             community_items.append(
@@ -10831,7 +10845,11 @@ title: "Security Policy"
 {security_content}
 """
             with open(security_qmd, "w", encoding="utf-8") as f:
-                f.write(security_qmd_content)
+                f.write(
+                    page_dates.add_to_page(
+                        security_qmd_content, security_path, self._config, self._page_authors
+                    )
+                )
 
         # License (folded into Community) — "Full license" link + small SPDX badge
         from ._license import get_license_info
@@ -11020,7 +11038,11 @@ anchor-sections: false
 ```
 """
             with open(license_qmd, "w", encoding="utf-8") as f:
-                f.write(license_qmd_content)
+                f.write(
+                    page_dates.add_to_page(
+                        license_qmd_content, license_path, self._config, self._page_authors
+                    )
+                )
             print(f"Created {license_qmd}")
             license_link = "license.qmd"
 
@@ -11222,7 +11244,11 @@ title: "Authors and Citation"
 {citation_section}
 """
             with open(citation_qmd, "w", encoding="utf-8") as f:
-                f.write(citation_qmd_content)
+                f.write(
+                    page_dates.add_to_page(
+                        citation_qmd_content, citation_path, self._config, self._page_authors
+                    )
+                )
             print(f"Created {citation_qmd}")
             citation_link = "citation.qmd"
 
@@ -14706,6 +14732,7 @@ anchor-sections: true
         lines.append("sidebar: false")
         lines.append("page-layout: full")
         lines.append('body-classes: "gd-skills-page"')
+        lines.append(f"{page_dates.AUTO_GENERATED}: true")
         lines.append("---")
         lines.append("")
 
@@ -15565,14 +15592,16 @@ anchor-sections: true
 
     def _write_metadata_partial(self, config: dict) -> None:
         """
-        Write a Quarto metadata partial with the page title, translations and `og:type`
+        Write and register the configured HTML metadata partial
 
-        Use the bundled partial to keep metadata independent of the installed
-        Quarto version. Apply a supported title template when SEO is enabled,
-        include translations for languages other than English, and include
-        the Open Graph page type when social cards are enabled.
-        Register the partial only if its contents change and the configuration
-        has an HTML mapping.
+        Start with the bundled partial to keep metadata independent of the
+        installed Quarto version. Add the configured SEO title template,
+        translations for languages other than English, and the Open Graph
+        page type for social cards. Include page dates and the site build
+        time when `show_dates` is on.
+
+        Register the partial only when it differs from the bundled version
+        and the configuration has an HTML mapping.
 
         Parameters
         ----------
@@ -15609,6 +15638,10 @@ anchor-sections: true
 
         if social_cards.applies(config, self._config, self.build_dir):
             partial = partial.rstrip("\n") + "\n" + social_cards.OG_TYPE_PARTIAL + "\n"
+
+        if self._config.show_dates:
+            date_lines = page_dates.partial_lines(datetime.now().isoformat())
+            partial = partial.rstrip("\n") + "\n" + date_lines + "\n"
 
         if partial == bundled:
             return

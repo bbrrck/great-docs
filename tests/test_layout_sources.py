@@ -259,6 +259,7 @@ def test_documentation_sources(source_project: tuple[Path, Path], explicit: bool
             "favicon": "assets/logo.svg",
             "include_in_header": [{"file": "header.html"}],
             "authors": [{"name": "Example", "image": "assets/logo.svg"}],
+            "show_dates": True,
         },
         source / "great-docs.yml",
     )

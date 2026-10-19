@@ -1,5 +1,5 @@
 """
-Translations and text direction in pages rendered by Quarto
+Translations, text direction and page dates in pages rendered by Quarto
 """
 
 import shutil
@@ -7,6 +7,8 @@ import subprocess
 from pathlib import Path
 
 import pytest
+
+from great_docs._website import page_dates, page_metadata
 
 pytestmark = pytest.mark.skipif(shutil.which("quarto") is None, reason="Quarto is not installed")
 
@@ -36,3 +38,45 @@ def test_partial_and_direction_reach_the_page(tmp_path: Path):
     page = (project / "_site" / "index.html").read_text(encoding="utf-8")
     assert page.count('<meta name="gd-i18n" content="a$b">') == 1
     assert 'dir="rtl"' in page[page.index("<html") : page.index(">", page.index("<html"))]
+
+
+def test_page_dates_reach_the_page(tmp_path: Path):
+    """
+    Preserve date and author metadata through Quarto rendering
+
+    Apply the generated-page marker to every page beneath its directory.
+    """
+    project = tmp_path / "proj"
+    (project / "reference").mkdir(parents=True)
+    (project / "metadata.html").write_text(
+        '<meta charset="utf-8" />\n<title>$pagetitle$</title>\n'
+        + page_dates.partial_lines("2026-10-16T12:00:00")
+        + "\n",
+        encoding="utf-8",
+    )
+    (project / "_quarto.yml").write_text(
+        "project:\n  type: website\nwebsite:\n  title: t\n"
+        "format:\n  html:\n    template-partials:\n      - metadata.html\n",
+        encoding="utf-8",
+    )
+    tag = '`<meta name="gd-page-author" content="O&#x27;Brien &amp; &quot;Co&quot;">`{=html}'
+    (project / "index.qmd").write_text(
+        page_metadata.add_to_page("---\ntitle: T\n---\n\nText\n", {page_dates.HEAD_TAGS: [tag]}),
+        encoding="utf-8",
+    )
+    (project / "reference" / "_metadata.yml").write_text(
+        f"{page_dates.AUTO_GENERATED}: true\n", encoding="utf-8"
+    )
+    (project / "reference" / "f.qmd").write_text("---\ntitle: F\n---\n\nText\n", encoding="utf-8")
+
+    subprocess.run(["quarto", "render"], cwd=project, check=True, capture_output=True)
+
+    page = (project / "_site" / "index.html").read_text(encoding="utf-8")
+    generated = (project / "_site" / "reference" / "f.html").read_text(encoding="utf-8")
+    build_time = '<meta name="gd-build-time" content="2026-10-16T12:00:00">'
+    # Pandoc decodes the apostrophe, which needs no escape in a double-quoted value.
+    assert page.count('<meta name="gd-page-author" content="O\'Brien &amp; &quot;Co&quot;">') == 1
+    assert 'name="gd-auto-generated"' not in page
+    assert generated.count('<meta name="gd-auto-generated" content="true">') == 1
+    assert 'name="gd-page-author"' not in generated
+    assert page.count(build_time) == generated.count(build_time) == 1

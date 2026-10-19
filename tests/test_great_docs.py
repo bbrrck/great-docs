@@ -45695,3 +45695,108 @@ def test_prepare_for_freeze_runs_all_steps(tmp_path):
     import os
 
     assert os.getcwd() != str(docs.build_dir)  # cwd restored
+
+
+def _write_user_guide(docs: GreatDocs, project: Path) -> None:
+    """Copy the project's user guide"""
+    docs._copy_user_guide_to_docs(docs._discover_user_guide())
+
+
+def _write_section(docs: GreatDocs, project: Path) -> None:
+    """Copy the project's `examples` section"""
+    source = project / "examples"
+    docs._copy_section_files([source / "01-basic.qmd"], source, docs.build_dir / "examples")
+
+
+def _write_blog(docs: GreatDocs, project: Path) -> None:
+    """Copy blog posts and preserve their listing metadata"""
+    source = project / "blog"
+    copied = docs._copy_blog_files([source / "post.qmd"], source, docs.build_dir / "blog")
+    assert (copied[0]["title"], copied[0]["description"]) == ("Post", "About it")
+
+
+def _write_custom_pages(docs: GreatDocs, project: Path) -> None:
+    """Wrap the project's passthrough custom page"""
+    with open(docs.build_dir / "_quarto.yml", "w") as f:
+        write_yaml({"website": {"sidebar": [], "navbar": {"left": []}}}, f)
+    docs._process_custom_pages()
+
+
+def _write_index(docs: GreatDocs, project: Path) -> None:
+    """Write the homepage and the community pages"""
+    docs._create_index_from_readme(force_rebuild=True)
+
+
+@pytest.mark.parametrize(
+    ("write", "page"),
+    [
+        (_write_user_guide, "user-guide/intro.qmd"),
+        (_write_section, "examples/basic.qmd"),
+        (_write_blog, "blog/post.qmd"),
+        (_write_custom_pages, "custom/landing.qmd"),
+        (_write_index, "contributing.qmd"),
+        (_write_index, "code-of-conduct.qmd"),
+        (_write_index, "roadmap.qmd"),
+        (_write_index, "security.qmd"),
+        (_write_index, "license.qmd"),
+        (_write_index, "citation.qmd"),
+    ],
+)
+def test_copied_pages_carry_dates(tmp_path: Path, write, page: str):
+    """Include source dates and available author details on copied pages"""
+    files = {
+        "pyproject.toml": '[project]\nname = "pkg"\nversion = "1.0"\n',
+        "great-docs.yml": "show_dates: true\n",
+        "pkg/__init__.py": "",
+        "README.md": "# pkg\n\nA package.\n",
+        "user_guide/01-intro.qmd": "---\ntitle: Intro\nauthor: Ada\n---\n\nText\n",
+        "examples/01-basic.qmd": "---\ntitle: Basic\nauthor: Ada\n---\n\nText\n",
+        "blog/post.qmd": "---\ntitle: Post\ndescription: About it\nauthor: Ada\n---\n\nText\n",
+        "custom/landing.html": "---\ntitle: Landing\nauthor: Ada\n---\n<p>Hi</p>\n",
+        ".github/CONTRIBUTING.md": "# Contributing\n\nText\n",
+        "CODE_OF_CONDUCT.md": "# Code of Conduct\n\nText\n",
+        "ROADMAP.md": "# Roadmap\n\nText\n",
+        ".github/SECURITY.md": "# Security\n\nText\n",
+        "LICENSE": "MIT License\n",
+        "CITATION.cff": "cff-version: 1.2.0\ntitle: pkg\nauthors:\n  - name: Ada\n",
+    }
+    for name, content in files.items():
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text(content, encoding="utf-8")
+    docs = GreatDocs(project_path=str(tmp_path))
+    docs.build_dir.mkdir(parents=True, exist_ok=True)
+
+    write(docs, tmp_path)
+
+    front_matter, _ = docs._split_frontmatter((docs.build_dir / page).read_text())
+    tags = front_matter["gd-head-tags"]
+    assert any('name="gd-page-modified"' in tag for tag in tags)
+    if write is not _write_index:
+        assert any('<meta name="gd-page-author" content="Ada">' in tag for tag in tags)
+    if write is _write_index:
+        homepage, _ = docs._split_frontmatter((docs.build_dir / "index.qmd").read_text())
+        assert "gd-head-tags" not in homepage
+
+
+def test_user_guide_homepage_has_no_dates(tmp_path: Path):
+    """Leave dates off the user guide page promoted to the homepage"""
+    files = {
+        "pyproject.toml": '[project]\nname = "pkg"\nversion = "1.0"\n',
+        "great-docs.yml": "show_dates: true\nhomepage: user_guide\n",
+        "pkg/__init__.py": "",
+        "user_guide/01-intro.qmd": "---\ntitle: Intro\nauthor: Ada\n---\n\nText\n",
+        "user_guide/02-next.qmd": "---\ntitle: Next\nauthor: Ada\n---\n\nText\n",
+    }
+    for name, content in files.items():
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text(content, encoding="utf-8")
+    docs = GreatDocs(project_path=str(tmp_path))
+    docs.build_dir.mkdir(parents=True, exist_ok=True)
+    info = docs._discover_user_guide()
+
+    docs._create_blended_index(info, docs._copy_user_guide_to_docs(info))
+
+    homepage, _ = docs._split_frontmatter((docs.build_dir / "index.qmd").read_text())
+    second, _ = docs._split_frontmatter((docs.build_dir / "user-guide/next.qmd").read_text())
+    assert "gd-head-tags" not in homepage
+    assert "gd-head-tags" in second
