@@ -18,7 +18,7 @@ from the repository root using the Makefile.
 - `make format`: Format code with ruff (formatting only, no lint fixes).
 - `make check`: Lint + core tests combined.
 - `make type-check`: Run mypy across multiple Python versions.
-- `make type-check-renderer`: Run pyright on the API reference renderer.
+- `make type-check-strict`: Run strict pyright over the paths listed in `tool.pyright.include`.
 
 Default to `make test` during iteration. Run `make test-synthetic` or `make test-integration`
 when your changes touch areas those suites cover.
@@ -31,7 +31,10 @@ Internal modules use a leading underscore (e.g., `_renderer`, `_apiref`, `_built
 Public modules do not. Follow this convention when creating new modules.
 
 Match the type annotation level of surrounding code. Both mypy (strict) and pyright (strict) are
-configured, but not all code is fully annotated yet.
+configured, but not all code is fully annotated yet. The codebase is moving to strict pyright
+one module at a time: `tool.pyright.include` in `pyproject.toml` lists the modules that already
+pass, so keep them passing `make type-check-strict` and add each module to the list once it is
+clean.
 
 ## Docstrings
 
