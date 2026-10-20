@@ -3,15 +3,16 @@ from __future__ import annotations
 import logging
 import os
 import re
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
 from ._builtin.directives import DIRECTIVES
 from ._interlinks import AliasClaims, LoadedSources, build_index, load_sources
 from ._layout import Layout
 from ._utils import fenced_lines, is_in_great_docs_build_dir, parse_seealso
-from ._yaml import split_front_matter
+from ._yaml import YamlMapping, YamlValue, split_front_matter
 
 if TYPE_CHECKING:
     from ._apiref.inventory import InventoryItem
@@ -116,6 +117,7 @@ def run_lint(
         "directives",
         "stale-versions",
         "descriptions",
+        "front-matter",
     }
 
     if checks is None:
@@ -253,6 +255,9 @@ def run_lint(
 
     if "descriptions" in checks:
         _check_page_descriptions(docs, project_root, result)
+
+    if "front-matter" in checks:
+        _check_front_matter(docs, project_root, result)
 
     return result
 
@@ -1188,10 +1193,7 @@ def _check_page_descriptions(docs: GreatDocs, project_root: Path, result: LintRe
         if fallback is None:
             continue
 
-        try:
-            symbol = str(path.relative_to(project_root.resolve()))
-        except ValueError:
-            symbol = str(path)
+        symbol = _page_symbol(path, project_root)
         if has_default:
             outcome, remedy = "uses the default description", ""
         else:
@@ -1208,3 +1210,156 @@ def _check_page_descriptions(docs: GreatDocs, project_root: Path, result: LintRe
                 ),
             )
         )
+
+
+def _page_symbol(path: Path, project_root: Path) -> str:
+    """
+    Return a page path for a lint issue
+
+    Parameters
+    ----------
+    path
+        The page's source file.
+    project_root
+        Root of the project.
+
+    Returns
+    -------
+    :
+        The path relative to `project_root`, or the full path for a page
+        outside it.
+    """
+    try:
+        return str(path.relative_to(project_root.resolve()))
+    except ValueError:
+        return str(path)
+
+
+FrontMatterForm: TypeAlias = Literal["string", "number", "strings", "sequence", "mapping"]
+"""An accepted front matter value form"""
+
+_FORM_READERS: dict[
+    FrontMatterForm, Callable[[YamlMapping, str], YamlValue | list[str] | YamlMapping]
+] = {
+    "string": YamlMapping.string,
+    "number": YamlMapping.number,
+    "strings": YamlMapping.strings,
+    "sequence": YamlMapping.sequence,
+    "mapping": YamlMapping.mapping,
+}
+
+_FORM_NAMES: dict[FrontMatterForm, str] = {
+    "string": "a string",
+    "number": "a number",
+    "strings": "a string or a list of strings",
+    "sequence": "a list",
+    "mapping": "a mapping",
+}
+
+GREAT_DOCS_KEYS: dict[str, tuple[FrontMatterForm, ...]] = {
+    "date_created": ("string",),
+    "guide-section": ("string",),
+    "last_update": ("mapping",),
+    "last_update.author": ("string",),
+    "last_update.date": ("string",),
+    "scale-to-fit": ("string", "sequence"),
+    "scale-to-fit-min-scale": ("string", "number"),
+    "status": ("string",),
+    "tag-location": ("string",),
+    "tags": ("sequence",),
+}
+"""
+Great Docs front matter keys and their accepted value forms
+
+Use dotted paths for nested keys. Exclude keys validated by Quarto and
+keys that Great Docs reads directly from the source text.
+"""
+
+
+def _accepts(front_matter: YamlMapping, key: str, form: FrontMatterForm, value: YamlValue) -> bool:
+    """
+    Check whether a value matches an accepted form
+
+    Parameters
+    ----------
+    front_matter
+        The mapping that holds the value.
+    key
+        The value's key in `front_matter`.
+    form
+        The expected value form.
+    value
+        The value.
+
+    Returns
+    -------
+    :
+        `True` when the accessor accepts the value, including an empty
+        list or mapping of the expected form.
+    """
+    read = _FORM_READERS[form](front_matter, key)
+    if isinstance(read, YamlMapping):
+        return bool(read) or value == {}
+    if isinstance(read, list):
+        return bool(read) or value == []
+    return read is not None
+
+
+def _wrong_type(front_matter: YamlMapping, path: str, forms: tuple[FrontMatterForm, ...]) -> bool:
+    """
+    Check whether a page sets a key to a value the build ignores
+
+    Parameters
+    ----------
+    front_matter
+        The page's front matter.
+    path
+        The dotted path of the key.
+    forms
+        The forms the build accepts.
+
+    Returns
+    -------
+    :
+        `True` when the key has a value that no form accepts. An absent key,
+        `null`, and a key under a parent of the wrong type are not reported.
+    """
+    *parents, key = path.split(".")
+    for parent in parents:
+        front_matter = front_matter.mapping(parent)
+    value = front_matter.get(key)
+    if value is None:
+        return False
+    return not any(_accepts(front_matter, key, form, value) for form in forms)
+
+
+def _check_front_matter(docs: GreatDocs, project_root: Path, result: LintResult) -> None:
+    """
+    Flag Great Docs front matter values with unsupported types
+
+    The build ignores such a value, so the page renders as if the key were
+    unset.
+
+    Parameters
+    ----------
+    docs
+        The project being checked.
+    project_root
+        Root of the project, against which page paths are reported.
+    result
+        Aggregated results to append to.
+    """
+    for path in _site_page_sources(docs):
+        front_matter, _ = split_front_matter(path.read_text(encoding="utf-8"))
+        for key, forms in GREAT_DOCS_KEYS.items():
+            if not _wrong_type(front_matter, key, forms):
+                continue
+            expected = " or ".join(_FORM_NAMES[form] for form in forms)
+            result.issues.append(
+                LintIssue(
+                    check="front-matter",
+                    severity="warning",
+                    symbol=_page_symbol(path, project_root),
+                    message=f"`{key}` should be {expected}; the value is ignored.",
+                )
+            )

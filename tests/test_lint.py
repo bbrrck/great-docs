@@ -231,6 +231,22 @@ class TestLostSections:
         assert _lost_sections(doc, "numpy") == {"google": {"examples"}}
 
 
+def _mock_docs() -> MagicMock:
+    """
+    Create a mock project with no site pages
+
+    Unset `MagicMock` attributes are truthy. Set explicit empty values to
+    prevent page checks from treating mocks as source paths.
+    """
+    docs = MagicMock()
+    docs._config.seo_enabled = False
+    docs._config.sections = []
+    docs._find_user_guide_dir.return_value = None
+    docs._get_custom_page_sources.return_value = []
+    docs._find_index_source_file.return_value = (None, None)
+    return docs
+
+
 def _make_griffe_obj(kind="function", docstring=None, members=None):
     """Create a mock griffe object."""
     obj = MagicMock()
@@ -879,8 +895,7 @@ class TestRunLint:
 
     @patch("great_docs.core.GreatDocs")
     def test_no_package_detected(self, mock_gd_cls, tmp_path):
-        mock_gd = MagicMock()
-        mock_gd._config.seo_enabled = False
+        mock_gd = _mock_docs()
         mock_gd._detect_package_name.return_value = None
         mock_gd_cls.return_value = mock_gd
 
@@ -891,8 +906,7 @@ class TestRunLint:
 
     @patch("great_docs.core.GreatDocs")
     def test_griffe_import_error(self, mock_gd_cls, tmp_path):
-        mock_gd = MagicMock()
-        mock_gd._config.seo_enabled = False
+        mock_gd = _mock_docs()
         mock_gd._detect_package_name.return_value = "mypkg"
         mock_gd._detect_module_name.return_value = None
         mock_gd._normalize_package_name.return_value = "mypkg"
@@ -918,8 +932,7 @@ class TestRunLint:
     @patch("griffe.load")
     @patch("great_docs.core.GreatDocs")
     def test_successful_lint_run(self, mock_gd_cls, mock_griffe_load, tmp_path):
-        mock_gd = MagicMock()
-        mock_gd._config.seo_enabled = False
+        mock_gd = _mock_docs()
         mock_gd._detect_package_name.return_value = "mypkg"
         mock_gd._resolve_importable_name.return_value = "mypkg"
         mock_gd._get_package_exports.return_value = ["func_a", "func_b"]
@@ -949,8 +962,7 @@ class TestRunLint:
         self, mock_gd_cls, mock_griffe_load, tmp_path
     ):
         """A `members:` config narrowing NetCache must not make `flush` look ambiguous."""
-        mock_gd = MagicMock()
-        mock_gd._config.seo_enabled = False
+        mock_gd = _mock_docs()
         mock_gd._detect_package_name.return_value = "mypkg"
         mock_gd._resolve_importable_name.return_value = "mypkg"
         mock_gd._get_package_exports.return_value = ["StoreCache", "NetCache"]
@@ -994,8 +1006,7 @@ class TestRunLint:
         """`load_sources` is the only thing that would put a lint run on the
         network, so a run over a project whose reference resolves nothing
         must never call it."""
-        mock_gd = MagicMock()
-        mock_gd._config.seo_enabled = False
+        mock_gd = _mock_docs()
         mock_gd._detect_package_name.return_value = "mypkg"
         mock_gd._resolve_importable_name.return_value = "mypkg"
         mock_gd._get_package_exports.return_value = ["func_a"]
@@ -1020,8 +1031,7 @@ class TestRunLint:
     ):
         """Regression: run_lint loads griffe by the importable module name, not the
         dash-normalized PyPI project name, when the two diverge."""
-        mock_gd = MagicMock()
-        mock_gd._config.seo_enabled = False
+        mock_gd = _mock_docs()
         mock_gd._detect_package_name.return_value = "my-dist"
         mock_gd._resolve_importable_name.return_value = "actual_module"
         mock_gd._get_package_exports.return_value = ["func_a"]
@@ -1045,8 +1055,7 @@ class TestRunLint:
     @patch("griffe.load")
     @patch("great_docs.core.GreatDocs")
     def test_selective_checks(self, mock_gd_cls, mock_griffe_load, tmp_path):
-        mock_gd = MagicMock()
-        mock_gd._config.seo_enabled = False
+        mock_gd = _mock_docs()
         mock_gd._detect_package_name.return_value = "mypkg"
         mock_gd._detect_module_name.return_value = None
         mock_gd._normalize_package_name.return_value = "mypkg"
@@ -1076,8 +1085,7 @@ class TestRunLint:
     @patch("griffe.load")
     @patch("great_docs.core.GreatDocs")
     def test_config_check_runs_alone(self, mock_gd_cls, mock_griffe_load, tmp_path):
-        mock_gd = MagicMock()
-        mock_gd._config.seo_enabled = False
+        mock_gd = _mock_docs()
         mock_gd._detect_package_name.return_value = "mypkg"
         mock_gd._normalize_package_name.return_value = "mypkg"
         mock_gd._get_package_exports.return_value = ["func_a"]
@@ -1105,8 +1113,7 @@ class TestRunLint:
     @patch("griffe.load")
     @patch("great_docs.core.GreatDocs")
     def test_no_exports(self, mock_gd_cls, mock_griffe_load, tmp_path):
-        mock_gd = MagicMock()
-        mock_gd._config.seo_enabled = False
+        mock_gd = _mock_docs()
         mock_gd._detect_package_name.return_value = "mypkg"
         mock_gd._normalize_package_name.return_value = "mypkg"
         mock_gd._get_package_exports.return_value = None
@@ -1126,8 +1133,7 @@ class TestRunLint:
     @patch("griffe.load")
     @patch("great_docs.core.GreatDocs")
     def test_griffe_load_failure(self, mock_gd_cls, mock_griffe_load, tmp_path):
-        mock_gd = MagicMock()
-        mock_gd._config.seo_enabled = False
+        mock_gd = _mock_docs()
         mock_gd._detect_package_name.return_value = "mypkg"
         mock_gd._normalize_package_name.return_value = "mypkg"
         mock_gd_cls.return_value = mock_gd
@@ -1166,8 +1172,7 @@ class TestRunLintQuiet:
     @patch("griffe.load")
     @patch("great_docs.core.GreatDocs")
     def test_quiet_suppresses_output(self, mock_gd_cls, mock_griffe_load, tmp_path, capsys):
-        mock_gd = MagicMock()
-        mock_gd._config.seo_enabled = False
+        mock_gd = _mock_docs()
         mock_gd._detect_package_name.return_value = "mypkg"
         mock_gd._normalize_package_name.return_value = "mypkg"
         mock_gd._get_package_exports.return_value = ["func_a"]
@@ -1186,8 +1191,7 @@ class TestRunLintQuiet:
 
     @patch("great_docs.core.GreatDocs")
     def test_quiet_no_package_restores_stdout(self, mock_gd_cls, tmp_path):
-        mock_gd = MagicMock()
-        mock_gd._config.seo_enabled = False
+        mock_gd = _mock_docs()
         mock_gd._detect_package_name.return_value = None
         mock_gd_cls.return_value = mock_gd
 
@@ -1202,8 +1206,7 @@ class TestRunLintQuiet:
 
     @patch("great_docs.core.GreatDocs")
     def test_quiet_griffe_import_error_restores_stdout(self, mock_gd_cls, tmp_path):
-        mock_gd = MagicMock()
-        mock_gd._config.seo_enabled = False
+        mock_gd = _mock_docs()
         mock_gd._detect_package_name.return_value = "mypkg"
         mock_gd._normalize_package_name.return_value = "mypkg"
         mock_gd_cls.return_value = mock_gd
@@ -1232,8 +1235,7 @@ class TestRunLintQuiet:
     def test_quiet_griffe_load_failure_restores_stdout(
         self, mock_gd_cls, mock_griffe_load, tmp_path
     ):
-        mock_gd = MagicMock()
-        mock_gd._config.seo_enabled = False
+        mock_gd = _mock_docs()
         mock_gd._detect_package_name.return_value = "mypkg"
         mock_gd._normalize_package_name.return_value = "mypkg"
         mock_gd_cls.return_value = mock_gd
@@ -2235,3 +2237,71 @@ class TestCheckPageDescriptions:
 
     def test_nothing_is_flagged_when_seo_is_disabled(self, tmp_path: Path):
         assert self._issues(tmp_path, seo=False) == []
+
+
+class TestCheckFrontMatter:
+    """Warnings for Great Docs front matter values with unsupported types"""
+
+    def _issues(self, tmp_path: Path, pages: dict[str, str]) -> list[LintIssue]:
+        from great_docs._lint import _check_front_matter
+        from great_docs.core import GreatDocs
+
+        (tmp_path / "pyproject.toml").write_text('[project]\nname = "pkg"\nversion = "1.0"\n')
+        (tmp_path / "pkg").mkdir()
+        (tmp_path / "pkg" / "__init__.py").write_text("")
+        guide = tmp_path / "user_guide"
+        guide.mkdir()
+        for name, front_matter in pages.items():
+            (guide / name).write_text(f"---\n{front_matter}---\n\nText\n")
+        result = LintResult()
+        _check_front_matter(GreatDocs(project_path=str(tmp_path)), tmp_path, result)
+        return result.issues
+
+    def test_flags_each_key_of_the_wrong_type(self, tmp_path: Path):
+        issues = self._issues(
+            tmp_path,
+            {
+                "01-wrong.qmd": (
+                    "status: [draft]\n"
+                    "tags: python\n"
+                    "scale-to-fit: 3\n"
+                    "scale-to-fit-min-scale: [1]\n"
+                    "last_update:\n  date: 2026\n  author: [a]\n"
+                ),
+                "02-wrong-mapping.qmd": "last_update: soon\n",
+            },
+        )
+
+        assert {(i.symbol, i.message.split("`")[1]) for i in issues} == {
+            ("user_guide/01-wrong.qmd", "status"),
+            ("user_guide/01-wrong.qmd", "tags"),
+            ("user_guide/01-wrong.qmd", "scale-to-fit"),
+            ("user_guide/01-wrong.qmd", "scale-to-fit-min-scale"),
+            ("user_guide/01-wrong.qmd", "last_update.date"),
+            ("user_guide/01-wrong.qmd", "last_update.author"),
+            ("user_guide/02-wrong-mapping.qmd", "last_update"),
+        }
+        assert {(i.check, i.severity) for i in issues} == {("front-matter", "warning")}
+        status = next(i for i in issues if "`status`" in i.message)
+        assert status.message == "`status` should be a string; the value is ignored."
+
+    def test_accepts_values_of_the_expected_types(self, tmp_path: Path):
+        issues = self._issues(
+            tmp_path,
+            {
+                "01-right.qmd": (
+                    "status: draft\n"
+                    "tags: [python, 2024]\n"
+                    "scale-to-fit: '#table'\n"
+                    "scale-to-fit-min-scale: 0.5\n"
+                    "last_update:\n  date: '2026-01-15'\n"
+                    "guide-section: Basics\n"
+                ),
+                "02-empty.qmd": "tags: []\nlast_update: {}\n",
+            },
+        )
+
+        assert issues == []
+
+    def test_ignores_keys_that_quarto_validates(self, tmp_path: Path):
+        assert self._issues(tmp_path, {"01-quarto.qmd": "title: [a]\nformat: 3\n"}) == []
