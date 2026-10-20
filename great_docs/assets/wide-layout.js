@@ -62,6 +62,8 @@
         var btn = document.createElement('button');
         btn.className = 'gd-wide-toggle';
         btn.setAttribute('type', 'button');
+        // Fly the tooltip out sideways, clear of the stacked back-to-top button
+        btn.setAttribute('data-tippy-placement', 'left');
 
         var svgOpen =
             '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" ' +
