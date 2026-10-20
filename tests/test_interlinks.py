@@ -146,6 +146,15 @@ def test_a_served_url_answers_both_questions():
     assert sources[0].inventory_location == "https://numpy.org/doc/stable/objects.inv"
 
 
+def test_a_single_alias_may_be_written_without_a_list():
+    """YAML reads `aliases: np` as a string, which must stay one alias."""
+    sources, _ = sources_from_config(
+        {"numpy": {"url": "https://numpy.org/doc/stable/", "aliases": "np"}}
+    )
+
+    assert sources[0].aliases == ("np",)
+
+
 def test_load_source_reads_a_local_inventory(tmp_path):
     """A url may address a directory on disk, as a sibling project's build does."""
     (tmp_path / "numpy.inv").write_bytes(encode(DEMO))

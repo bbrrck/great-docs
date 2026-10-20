@@ -12,17 +12,21 @@ from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 from stat import S_ISREG
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import requests
 
+from .._yaml import YamlMapping
 from .sphinx_inventory import INVENTORY_FILENAME, Inventory, decode
 
 if TYPE_CHECKING:
-    from ..config import Config
+    from ..config import Config, ConfigDict
 
 _TIMEOUT = 30
 """Seconds to wait for an inventory download"""
+
+_MAX_AGE = timedelta(days=7)
+"""How long a cached download is used without refetching"""
 
 
 @dataclass(frozen=True)
@@ -90,12 +94,13 @@ def _is_relative(url: str) -> bool:
     return not _is_served(url) and not url.startswith("/")
 
 
-def sources_from_config(sources: dict[str, Any]) -> tuple[list[Source], list[str]]:
+def sources_from_config(sources: ConfigDict) -> tuple[list[Source], list[str]]:
     """
     Build the sources declared in the configuration
 
-    Reject an entry with no `url`, since neither its inventory nor its links
-    have an address without one. That is the only reason an entry is rejected.
+    Reject an entry with no `url` string, since neither its inventory nor its
+    links have an address without one. That is the only reason an entry is
+    rejected.
 
     Note a relative `url` rather than rejecting it. One prefix is written into
     the index and used from pages at every depth, so a relative one resolves to
@@ -115,9 +120,10 @@ def sources_from_config(sources: dict[str, Any]) -> tuple[list[Source], list[str
     """
     usable: list[Source] = []
     notes: list[str] = []
-    for name, value in sources.items():
-        value = value or {}
-        url = str(value.get("url", "") or "")
+    declared = YamlMapping(sources)
+    for name in sources:
+        entry = declared.mapping(name)
+        url = entry.string("url") or ""
         if not url:
             notes.append(f"{name}: no url configured; it will not be linked")
             continue
@@ -126,7 +132,7 @@ def sources_from_config(sources: dict[str, Any]) -> tuple[list[Source], list[str
                 f"{name}: '{url}' is relative, so links into it resolve from wherever the "
                 "reading page sits; give a url that is the same on disk and on the site"
             )
-        usable.append(Source(name=name, url=url, aliases=tuple(value.get("aliases", []) or [])))
+        usable.append(Source(name=name, url=url, aliases=tuple(entry.strings("aliases"))))
     return usable, notes
 
 
@@ -229,7 +235,7 @@ class InventoryCache:
         try:
             self.directory.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix(f"{path.suffix}.{os.getpid()}.tmp")
-            tmp.write_bytes(data)
+            _ = tmp.write_bytes(data)
             os.replace(tmp, path)
         except OSError as exc:
             # The download itself succeeded; a caching problem is not a reason
@@ -242,7 +248,7 @@ def load_source(
     source: Source,
     cache_dir: Path,
     *,
-    max_age: timedelta = timedelta(days=7),
+    max_age: timedelta = _MAX_AGE,
     root: Path | None = None,
 ) -> tuple[Inventory | None, str]:
     """
