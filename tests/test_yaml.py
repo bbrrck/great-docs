@@ -82,6 +82,7 @@ def test_get_and_membership_see_any_value():
     [
         ("---\ntitle: T\n---\nBody\n", {"title": "T"}, "Body\n"),
         ("---\ntitle: T\n---", {"title": "T"}, ""),
+        ("--- \t\ntitle: T\n---\nBody\n", {"title": "T"}, "Body\n"),
         ("Body\n", {}, "Body\n"),
         ("\n---\ntitle: T\n---\nBody\n", {}, "\n---\ntitle: T\n---\nBody\n"),
         ("---\ntitle: T\nBody\n", {}, "---\ntitle: T\nBody\n"),
@@ -92,6 +93,7 @@ def test_get_and_membership_see_any_value():
     ids=[
         "block",
         "ends-at-closing-line",
+        "trailing-whitespace-on-opening-line",
         "none",
         "leading-blank-line",
         "unclosed",

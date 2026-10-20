@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from yaml12 import format_yaml
 
-from .._yaml import YamlMapping, split_front_matter
+from .._yaml import FRONT_MATTER_OPENING, YamlMapping, split_front_matter
 from . import head, scale_to_fit, social_cards
 from .seo import description
 
@@ -119,8 +119,9 @@ def add_to_page(content: str, entries: dict[str, Any]) -> str:
         The page with the entries prepended, creating front matter if needed.
     """
     block = format_yaml(entries).rstrip()
-    if content.startswith("---\n"):
-        return f"---\n{block}\n{content[4:]}"
+    opening = FRONT_MATTER_OPENING.match(content)
+    if opening is not None:
+        return f"---\n{block}\n{content[opening.end() :]}"
     return f"---\n{block}\n---\n\n{content}"
 
 

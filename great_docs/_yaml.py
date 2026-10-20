@@ -8,6 +8,7 @@ narrow them with `isinstance`.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, TypeAlias
@@ -168,6 +169,10 @@ class YamlMapping:
         return YamlMapping(value) if isinstance(value, dict) else YamlMapping()
 
 
+FRONT_MATTER_OPENING = re.compile(r"---[ \t]*\n")
+"""The first line of a page that opens front matter"""
+
+
 @dataclass(frozen=True)
 class FrontMatterBlock:
     """The front matter that opens a page"""
@@ -183,9 +188,9 @@ def locate_front_matter(content: str) -> FrontMatterBlock | None:
     """
     Find and parse the front matter that opens a page
 
-    Front matter must start with `---` on the first line and ends at the
-    next line beginning with `---`. A page with leading blank lines has no
-    front matter, as in Quarto.
+    Front matter must start with `---` on the first line, optionally followed
+    by spaces or tabs, and ends at the next line beginning with `---`. A page
+    with leading blank lines has no front matter, as in Quarto.
 
     Parameters
     ----------
@@ -198,13 +203,14 @@ def locate_front_matter(content: str) -> FrontMatterBlock | None:
         The front matter, or `None` when the page does not open with a closed
         block.
     """
-    if not content.startswith("---\n"):
+    opening = FRONT_MATTER_OPENING.match(content)
+    if opening is None:
         return None
-    closing = content.find("\n---", 3)
+    closing = content.find("\n---", opening.end() - 1)
     if closing == -1:
         return None
     try:
-        parsed = parse_yaml(content[4 : closing + 1])
+        parsed = parse_yaml(content[opening.end() : closing + 1])
     except ValueError:
         parsed = None
     mapping = YamlMapping(parsed) if isinstance(parsed, dict) else YamlMapping()

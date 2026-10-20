@@ -45,6 +45,13 @@ def test_add_to_page_keeps_the_author_front_matter():
     )
 
 
+def test_add_to_page_joins_front_matter_with_a_padded_opening_line():
+    content = "--- \ntitle: A\n---\n\nBody\n"
+    assert add_to_page(content, {"description-meta": "Desc"}) == (
+        "---\ndescription-meta: Desc\ntitle: A\n---\n\nBody\n"
+    )
+
+
 def test_add_to_page_creates_front_matter():
     assert add_to_page("Body\n", {"description-meta": "Desc"}) == (
         "---\ndescription-meta: Desc\n---\n\nBody\n"
