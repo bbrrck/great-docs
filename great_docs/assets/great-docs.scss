@@ -4265,6 +4265,11 @@ body.quarto-dark .table td {
     border-color: var(--gd-border-color);
 }
 
+/* The light-mode rule sets this from a Sass variable, fixed at compile time */
+body.quarto-dark .table > tbody {
+    border-bottom-color: var(--gd-border-color);
+}
+
 body.quarto-dark .table-striped > tbody > tr:nth-of-type(odd) > * {
     background-color: var(--gd-bg-tertiary);
 }
