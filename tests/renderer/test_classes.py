@@ -91,7 +91,7 @@ def test_contained_docstring_link():
     qmd = render_code_variable(code, "Base")
 
     # Methods in summary tables use short name anchors (matching Quarto section IDs)
-    assert '<a href="#meth"' in qmd and ">meth()</a>" in qmd
+    assert "[meth()](#meth)" in qmd
 
 
 def test_dataclass_with_methods_keeps_constructor_signature():

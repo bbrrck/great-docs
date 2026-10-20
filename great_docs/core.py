@@ -11465,7 +11465,7 @@ body-classes: "gd-homepage"
 
         import html as _html
 
-        from ._apiref._render.html_table import html_table
+        from ._apiref._render._tables import html_table
         from ._icons import get_icon_svg
         from ._translations import get_translation
 

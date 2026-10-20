@@ -21,8 +21,8 @@ from .._type_checks import (
     is_doc_type_alias,
 )
 from ..content import Doc, DocClass, MemberPage
+from ._tables import summary_table
 from .doc import RenderDoc
-from .html_table import html_table
 
 if TYPE_CHECKING:
     from typing import Literal
@@ -393,7 +393,7 @@ class __RenderDocMembersMixin(RenderDoc):
 
         if self.show_members_summary and show_summary:
             rows = [row for r in render_objs for row in r.render_summary()]
-            summary = html_table(rows)
+            summary = summary_table(rows)
         else:
             summary = None
 
@@ -454,7 +454,7 @@ class __RenderDocMembersMixin(RenderDoc):
 
         if self.show_members_summary and show_summary:
             rows = [row for r in render_objs for row in r.render_summary()]
-            summary = html_table(rows)
+            summary = summary_table(rows)
         else:
             summary = None
 

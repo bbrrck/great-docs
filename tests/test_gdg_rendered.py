@@ -360,6 +360,28 @@ def test_big_class_has_method_pages(pkg_name: str):
     )
 
 
+@requires_bs4
+@pytest.mark.parametrize("pkg_name", _PKGS_WITH_REF_PAGES)
+def test_member_summary_tables_are_markdown_tables(pkg_name: str):
+    """Member summaries render as Markdown tables with a linked name in each row."""
+    tables = [
+        (page.name, table)
+        for page in sorted(_ref_dir(pkg_name).glob("*.html"))
+        for table in _load_html(page).select("table.gd-summary-table")
+    ]
+    if not tables:
+        pytest.skip("No member summary tables")
+
+    for page_name, table in tables:
+        # Quarto gives the `table` class only to tables it read as Markdown
+        assert "table" in table["class"], page_name
+        for row in table.select("tbody tr"):
+            name_cell = row.find("td")
+            assert name_cell.find("p") is None, page_name
+            link = name_cell.find("a")
+            assert link is not None and "doc-label" in link.get("class", []), page_name
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # R0: User Guide Structure
 # ═══════════════════════════════════════════════════════════════════════════════

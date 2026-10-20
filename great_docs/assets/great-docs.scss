@@ -154,7 +154,9 @@ table:not(.gt_table) {
 }
 
 // Summary tables used in reference pages (Methods, Attributes sections)
-// Override Bootstrap's .table-bordered styles for cleaner appearance
+// Override Bootstrap's .table-bordered styles for cleaner appearance. These are
+// Markdown tables, so Quarto also gives them the `table` class; the link resets
+// below cancel the size, weight and underline of great-docs' generic `.table a`.
 table.gd-summary-table {
    border: none;
    margin: 1em 0;
@@ -186,7 +188,10 @@ table.gd-summary-table {
 
       a {
          color: var(--bs-body-color);
+         font-size: inherit;
+         font-weight: $link-weight;
          text-decoration: underline;
+         text-decoration-thickness: auto;
          text-underline-offset: 0.2em;
 
          &:hover {
