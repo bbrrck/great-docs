@@ -16,13 +16,12 @@ import re
 from dataclasses import dataclass
 from html import escape, unescape
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
-
-from yaml12 import parse_yaml
+from typing import TYPE_CHECKING, Any
 
 from .. import head
 
 if TYPE_CHECKING:
+    from ..._yaml import YamlMapping
     from ...config import Config
 
 MAX_LENGTH = 155
@@ -153,37 +152,6 @@ def metadata_value(markdown: str | None) -> str | None:
     return as_metadata(text) if text else None
 
 
-def split_front_matter(content: str) -> tuple[dict[str, Any] | None, str]:
-    """
-    Separate a page's YAML front matter from its body
-
-    Parameters
-    ----------
-    content
-        The page source.
-
-    Returns
-    -------
-    :
-        The front matter, or `None` when the page has none or it is not a
-        mapping, and the body.
-    """
-    if not content.startswith("---\n"):
-        return None, content
-    end = content.find("\n---", 3)
-    if end == -1:
-        return None, content
-    try:
-        front_matter = parse_yaml(content[4 : end + 1])
-    except ValueError:
-        return None, content
-    # Skip the rest of the closing `---` line
-    body = content[end + 4 :].partition("\n")[2]
-    if not isinstance(front_matter, dict):
-        return None, body
-    return cast("dict[str, Any]", front_matter), body
-
-
 def first_paragraph(body: str) -> FirstParagraph:
     """
     Find the paragraph a page opens with
@@ -292,7 +260,7 @@ def default_description(config: Config, package_description: str | None) -> str 
     return plain_text(source) if source else None
 
 
-def page_description(front_matter: dict[str, Any], body: str, default: str | None) -> str | None:
+def page_description(front_matter: YamlMapping, body: str, default: str | None) -> str | None:
     """
     Choose the `description-meta` value Python writes for a page
 

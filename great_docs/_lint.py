@@ -11,6 +11,7 @@ from ._builtin.directives import DIRECTIVES
 from ._interlinks import AliasClaims, LoadedSources, build_index, load_sources
 from ._layout import Layout
 from ._utils import fenced_lines, is_in_great_docs_build_dir, parse_seealso
+from ._yaml import split_front_matter
 
 if TYPE_CHECKING:
     from ._apiref.inventory import InventoryItem
@@ -1176,8 +1177,8 @@ def _check_page_descriptions(docs: GreatDocs, project_root: Path, result: LintRe
     homepage, _ = docs._find_index_source_file()
     has_default = docs._default_description() is not None
     for path in _site_page_sources(docs):
-        front_matter, body = description.split_front_matter(path.read_text(encoding="utf-8"))
-        if front_matter is not None and any(key in front_matter for key in description.PAGE_KEYS):
+        front_matter, body = split_front_matter(path.read_text(encoding="utf-8"))
+        if any(key in front_matter for key in description.PAGE_KEYS):
             continue
         if path == homepage:
             # The homepage is described after badges and hero elements are removed

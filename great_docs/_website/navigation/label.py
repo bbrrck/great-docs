@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 from ..._translations import get_translations_bundle
-from .. import head
+from ..._yaml import YamlMapping
 
 if TYPE_CHECKING:
     from ...config import Config
@@ -64,6 +64,6 @@ def register(quarto_config: dict[str, Any], config: Config) -> None:
         f"--gd-nav-prefix-{kind}:{_css_string(text)};" for kind, text in prefixes.items()
     )
 
-    headers = head.include_entries(html_config.get("include-in-header"))
+    headers = YamlMapping(html_config).entries("include-in-header")
     headers.append({"text": f"<style>:root{{{declarations}}}</style>"})
     html_config["include-in-header"] = headers

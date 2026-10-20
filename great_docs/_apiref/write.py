@@ -13,8 +13,9 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from yaml12 import format_yaml, parse_yaml, write_yaml
+from yaml12 import format_yaml, write_yaml
 
+from .._yaml import locate_front_matter
 from .content import Page, Section
 
 if TYPE_CHECKING:
@@ -43,16 +44,11 @@ def merge_frontmatter(content: str, extra: dict[str, Any]) -> str:
         YAML key-value pairs to add or overwrite in the frontmatter.
     """
     if content.startswith("---\n"):
-        end = content.find("\n---", 4)
-        if end == -1:
+        block = locate_front_matter(content)
+        if block is None:
             raise ValueError("Frontmatter block opened with `---` is never closed")
-        existing_yaml = content[4 : end + 1]  # noqa: E203
-        rest = content[end + 4 :]  # after closing ---
-        raw = parse_yaml(existing_yaml)
-        existing: dict[str, Any] = cast("dict[str, Any]", raw) if isinstance(raw, dict) else {}
-        existing.update(extra)
-        new_yaml = format_yaml(existing)
-        return f"---\n{new_yaml}\n---{rest}"
+        new_yaml = format_yaml({**block.mapping.data, **extra})
+        return f"---\n{new_yaml}\n---\n{content[block.end :]}"
     else:
         new_yaml = format_yaml(extra)
         return f"---\n{new_yaml}\n---\n\n{content}"
