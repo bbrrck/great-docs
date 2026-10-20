@@ -195,9 +195,11 @@ def write_to_pages(
             tags.append(tag)
         if structured_data and (tag := structured_data.tag(page)):
             tags.append(tag)
-        if not (entries or tags):
-            continue
         content = add_to_page(page.content, entries) if entries else page.content
-        path.write_text(head.add_tags(content, tags), encoding="utf-8")
+        if tags:
+            content = head.add_tags(content, tags)
+        if content == page.content:
+            continue
+        path.write_text(content, encoding="utf-8")
         changed.append(path)
     return changed
