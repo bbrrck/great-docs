@@ -22,18 +22,25 @@ Contract for adding an option — keep the single source intact:
   a richer one may coerce shape or derive from other options, but adds no
   default value.
 """
+from __future__ import annotations
 
 import copy
 import io
 import re
 from importlib import resources
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, cast
 
 from yaml12 import read_yaml
 
+if TYPE_CHECKING:
+    from typing import Any, TypeAlias
 
-def _load_default_config() -> dict[str, Any]:
+    ConfigDict: TypeAlias = dict[str, Any]
+    """A mapping of configuration keys to values of unchecked type"""
+
+
+def _load_default_config() -> ConfigDict:
     """Load the packaged default configuration
 
     Returns
@@ -47,10 +54,10 @@ def _load_default_config() -> dict[str, Any]:
         .joinpath("assets", "great-docs.default.yml")
         .read_text(encoding="utf-8")
     )
-    return read_yaml(io.StringIO(text)) or {}
+    return cast("ConfigDict", read_yaml(io.StringIO(text)))
 
 
-DEFAULT_CONFIG: dict[str, Any] = _load_default_config()
+DEFAULT_CONFIG: ConfigDict = _load_default_config()
 
 # great-docs-owned keys that older configs placed under `site`. They are
 # top-level keys now; any found under `site` at load are lifted out so `site`
@@ -99,7 +106,7 @@ class Config:
         self.cache_dir = cache_dir if cache_dir is not None else project_root / ".great-docs-cache"
         self._config = self._load_config()
 
-    def _load_config(self) -> dict[str, Any]:
+    def _load_config(self) -> ConfigDict:
         """
         Load configuration from great-docs.yml.
 
@@ -109,7 +116,7 @@ class Config:
             The loaded configuration merged with defaults.
         """
         config = copy.deepcopy(DEFAULT_CONFIG)
-        self._user_config: dict[str, Any] = {}
+        self._user_config: ConfigDict = {}
 
         if self.config_path.exists():
             try:
@@ -127,7 +134,7 @@ class Config:
                         f"got {type(user_config).__name__}. Using defaults."
                     )
                 else:
-                    self._user_config = cast("dict[str, Any]", user_config)
+                    self._user_config = cast("ConfigDict", user_config)
                     # Deep merge user config with defaults
                     config = self._merge(config, self._normalize_legacy_keys(self._user_config))
             except ValueError as e:
@@ -139,7 +146,7 @@ class Config:
         return config
 
     @staticmethod
-    def _normalize_legacy_keys(user_config: dict[str, Any]) -> dict[str, Any]:
+    def _normalize_legacy_keys(user_config: ConfigDict) -> ConfigDict:
         """
         Rewrite legacy spellings in a user configuration to their current keys
 
@@ -163,7 +170,7 @@ class Config:
             return user_config
 
         config = dict(user_config)
-        site = config["site"] = dict(cast("dict[str, Any]", site))
+        site = config["site"] = dict(cast("ConfigDict", site))
         if "language" in site:
             site.setdefault("lang", site.pop("language"))
         for key in _LEGACY_SITE_KEYS:
@@ -184,7 +191,7 @@ class Config:
         "wide_layout",
     )
 
-    def _normalize_shorthands(self, config: dict[str, Any]) -> dict[str, Any]:
+    def _normalize_shorthands(self, config: ConfigDict) -> ConfigDict:
         """
         Expand shorthand config values into their canonical dict form
 
@@ -231,11 +238,13 @@ class Config:
                 raw["enabled"] = True
 
         hero_logo = config["hero"].get("logo")
-        if isinstance(hero_logo, dict) and not hero_logo.get("light") and hero_logo.get("dark"):
-            # Mirror the top-level `logo` dark-only fallback: a dark-only
-            # hero.logo must still resolve to a `light` asset, or
-            # core.py's _build_hero_section silently drops the image.
-            hero_logo["light"] = hero_logo["dark"]
+        if isinstance(hero_logo, dict):
+            hero_logo = cast("ConfigDict", hero_logo)
+            if not hero_logo.get("light") and hero_logo.get("dark"):
+                # Mirror the top-level `logo` dark-only fallback: a dark-only
+                # hero.logo must still resolve to a `light` asset, or
+                # core.py's _build_hero_section silently drops the image.
+                hero_logo["light"] = hero_logo["dark"]
 
         # A bare `seo: true`/`seo: false` collapses the whole subtree to a bool;
         # rebuild it into the full default dict with `enabled` set from the
@@ -251,6 +260,7 @@ class Config:
             config["seo"] = merged
             seo = merged
         if isinstance(seo, dict):
+            seo = cast("ConfigDict", seo)
             for sub in ("sitemap", "robots", "canonical", "structured_data"):
                 raw = seo.get(sub)
                 if isinstance(raw, bool):
@@ -286,11 +296,13 @@ class Config:
                 merged["dark"] = raw
             config["logo"] = merged
             raw = config["logo"]
-        if isinstance(raw, dict) and not raw.get("light") and raw.get("dark"):
-            # A dark-only logo still needs a `light` asset for the primary
-            # navbar <img>; fall back to the same file (core.py:11900 assumes
-            # `light` is always present once Config.logo is not None).
-            raw["light"] = raw["dark"]
+        if isinstance(raw, dict):
+            raw = cast("ConfigDict", raw)
+            if not raw.get("light") and raw.get("dark"):
+                # A dark-only logo still needs a `light` asset for the primary
+                # navbar <img>; fall back to the same file (core.py:11900 assumes
+                # `light` is always present once Config.logo is not None).
+                raw["light"] = raw["dark"]
 
         # `freeze` is also excluded from the loop above: a scalar shorthand
         # sets `mode`, not `enabled`.
@@ -315,7 +327,7 @@ class Config:
     )
 
     @staticmethod
-    def _merge(defaults: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
+    def _merge(defaults: ConfigDict, user: ConfigDict) -> ConfigDict:
         """
         Deep merge two config-shaped mappings
 
@@ -345,7 +357,7 @@ class Config:
             if key not in result or not isinstance(result[key], dict):
                 result[key] = value
             elif isinstance(value, dict):
-                result[key] = Config._merge(result[key], value)
+                result[key] = Config._merge(result[key], cast("ConfigDict", value))
             elif value is None and key not in Config._NULL_DISABLES:
                 pass  # keep the default subtree
             else:
@@ -375,7 +387,7 @@ class Config:
         value: Any = self._config
         for part in key.split("."):
             if isinstance(value, dict) and part in value:
-                value = value[part]
+                value = cast("ConfigDict", value)[part]
             else:
                 raise KeyError(key)
         return value
@@ -408,7 +420,7 @@ class Config:
         """
         val = self["project_type"]
         if isinstance(val, list):
-            return [str(t).lower() for t in val]
+            return [str(t).lower() for t in cast("list[object]", val)]
         return [str(val).lower()]
 
     @property
@@ -512,7 +524,7 @@ class Config:
         return self["cli.desc"]
 
     @property
-    def cli_sections(self) -> list[dict[str, Any]]:
+    def cli_sections(self) -> list[ConfigDict]:
         """Get the explicit CLI reference index sections.
 
         Mirrors the `reference:` config. Supports a list of section dicts under `cli.sections`::
@@ -528,7 +540,7 @@ class Config:
         """
         val = self["cli.sections"]
         if isinstance(val, list):
-            return val
+            return cast("list[ConfigDict]", val)
         return []
 
     @property
@@ -571,7 +583,7 @@ class Config:
         return self["mcp.name"]
 
     @property
-    def mcp_categories(self) -> dict:
+    def mcp_categories(self) -> dict[str, list[str]]:
         """Get manual MCP tool categories."""
         return self["mcp.categories"]
 
@@ -622,7 +634,7 @@ class Config:
         return self["skill.best_practices"]
 
     @property
-    def skill_decision_table(self) -> list[dict]:
+    def skill_decision_table(self) -> list[ConfigDict]:
         """Get manual decision table rows for the SKILL.md."""
         return self["skill.decision_table"]
 
@@ -632,7 +644,7 @@ class Config:
         return self["skill.extra_body"]
 
     @property
-    def skill_skills(self) -> list[dict]:
+    def skill_skills(self) -> list[ConfigDict]:
         """Get the list of named skills for multi-skill distribution.
 
         Each entry should have `name` and `file` keys. When non-empty, this overrides the single
@@ -651,7 +663,7 @@ class Config:
         return self["changelog.max_releases"]
 
     @property
-    def sections(self) -> list[dict]:
+    def sections(self) -> list[ConfigDict]:
         """Get the custom sections configuration."""
         return self["sections"]
 
@@ -678,7 +690,7 @@ class Config:
 
         entries: list[Any]
         if isinstance(raw, list):
-            entries = raw
+            entries = cast("list[object]", raw)
         else:
             entries = [raw]
 
@@ -691,6 +703,7 @@ class Config:
                 continue
 
             if isinstance(entry, dict):
+                entry = cast("ConfigDict", entry)
                 source_dir = entry.get("dir")
                 if not isinstance(source_dir, str) or not source_dir:
                     continue
@@ -729,7 +742,7 @@ class Config:
         return bool(self["wide_layout.enabled"])
 
     @property
-    def wide_layout(self) -> dict[str, Any] | None:
+    def wide_layout(self) -> ConfigDict | None:
         """The validated wide layout settings, or None when the toggle is disabled
 
         Invalid values fall back to the packaged defaults: scales below 1 or
@@ -839,7 +852,7 @@ class Config:
         return value
 
     @property
-    def user_guide(self) -> str | list | None:
+    def user_guide(self) -> str | list[Any] | None:
         """Get the user guide configuration.
 
         Returns
@@ -874,7 +887,7 @@ class Config:
         return True
 
     @property
-    def reference(self) -> list[dict[str, Any]]:
+    def reference(self) -> list[ConfigDict]:
         """Get the API reference configuration (explicit section ordering).
 
         Supports two forms in great-docs.yml:
@@ -899,11 +912,11 @@ class Config:
         """
         val = self["reference"]
         if isinstance(val, list):
-            return val
+            return cast("list[ConfigDict]", val)
         if isinstance(val, dict):
-            sections = val.get("sections")
+            sections = cast("ConfigDict", val).get("sections")
             if isinstance(sections, list):
-                return sections
+                return cast("list[ConfigDict]", sections)
         return []
 
     @property
@@ -915,7 +928,7 @@ class Config:
         """
         val = self["reference"]
         if isinstance(val, dict):
-            return val.get("title")
+            return cast("ConfigDict", val).get("title")
         return None
 
     @property
@@ -927,7 +940,7 @@ class Config:
         """
         val = self["reference"]
         if isinstance(val, dict):
-            return val.get("desc")
+            return cast("ConfigDict", val).get("desc")
         return None
 
     def should_split_methods(self, method_count: int) -> bool:
@@ -953,12 +966,12 @@ class Config:
             return method_count > int(DEFAULT_CONFIG["inline_methods"])
 
     @property
-    def authors(self) -> list[dict[str, Any]]:
+    def authors(self) -> list[ConfigDict]:
         """Get the rich author metadata."""
         return self["authors"]
 
     @property
-    def funding(self) -> dict[str, Any] | None:
+    def funding(self) -> ConfigDict | None:
         """
         Get the funding organization metadata.
 
@@ -968,12 +981,12 @@ class Config:
         return self["funding"]
 
     @property
-    def site(self) -> dict[str, Any]:
+    def site(self) -> ConfigDict:
         """Get the site settings — a pure Quarto passthrough into format.html."""
         return self["site"]
 
     @property
-    def site_quarto(self) -> dict[str, Any]:
+    def site_quarto(self) -> ConfigDict:
         """Get the `site` subtree destined for `_quarto.yml` `format.html`
 
         Legacy great-docs keys are already normalized out of `site` at load;
@@ -1015,7 +1028,7 @@ class Config:
         return self["site.lang"]
 
     @property
-    def team_author(self) -> dict[str, Any] | None:
+    def team_author(self) -> ConfigDict | None:
         """Get the team author configuration for auto-generated pages.
 
         Returns
@@ -1027,12 +1040,14 @@ class Config:
         raw = self["team_author"]
         if raw is None:
             return None
-        if isinstance(raw, dict) and raw.get("name"):
-            return {
-                "name": raw["name"],
-                "image": raw.get("image"),
-                "url": raw.get("url"),
-            }
+        if isinstance(raw, dict):
+            raw = cast("ConfigDict", raw)
+            if raw.get("name"):
+                return {
+                    "name": raw["name"],
+                    "image": raw.get("image"),
+                    "url": raw.get("url"),
+                }
         return None
 
     @property
@@ -1041,9 +1056,9 @@ class Config:
         return self["jupyter"]
 
     @property
-    def interlinks_sources(self) -> dict[str, Any]:
+    def interlinks_sources(self) -> ConfigDict:
         """Get the external documentation projects to link to."""
-        return cast("dict[str, Any]", self["interlinks.sources"])
+        return cast("ConfigDict", self["interlinks.sources"])
 
     @property
     def interlinks_add_function_parentheses(self) -> bool:
@@ -1051,7 +1066,7 @@ class Config:
         return bool(self["interlinks.add_function_parentheses"])
 
     @property
-    def logo(self) -> dict[str, Any] | None:
+    def logo(self) -> ConfigDict | None:
         """The logo config, or None when no logo is set"""
         if not (self["logo.light"] or self["logo.dark"]):
             return None
@@ -1063,7 +1078,7 @@ class Config:
         return bool(self["logo.show_title"]) if self.logo else False
 
     @property
-    def hero(self) -> dict[str, Any]:
+    def hero(self) -> ConfigDict:
         """Resolved hero configuration"""
         return self["hero"]
 
@@ -1081,7 +1096,7 @@ class Config:
         return self["hero.enabled"] is False
 
     @property
-    def hero_logo(self) -> str | dict | None | bool:
+    def hero_logo(self) -> str | ConfigDict | bool | None:
         """The hero-specific logo, or `False` when suppressed"""
         return self["hero.logo"]
 
@@ -1112,13 +1127,13 @@ class Config:
         return bool(self["hero.starfield"])
 
     @property
-    def hero_badges(self) -> str | list | None:
+    def hero_badges(self) -> str | list[Any] | None:
         """The hero badges config (`'auto'`, an explicit list, or `None`)"""
         val = self["hero.badges"]
         return None if val is False else val
 
     @property
-    def favicon(self) -> dict[str, Any] | None:
+    def favicon(self) -> ConfigDict | None:
         """Get the normalized favicon configuration.
 
         Returns
@@ -1133,11 +1148,11 @@ class Config:
         if isinstance(raw, str):
             return {"icon": raw}
         if isinstance(raw, dict):
-            return raw
+            return cast("ConfigDict", raw)
         return None
 
     @property
-    def announcement(self) -> dict[str, Any] | None:
+    def announcement(self) -> ConfigDict | None:
         """The announcement banner config, or None when there is no content"""
         content = self["announcement.content"]
         if not content:
@@ -1155,7 +1170,7 @@ class Config:
         }
 
     @property
-    def versions(self) -> list:
+    def versions(self) -> list[Any]:
         """Get the raw versions list from config."""
         return self["versions"]
 
@@ -1182,7 +1197,7 @@ class Config:
         return self["version_selector.warning_banner"]
 
     @property
-    def version_aliases(self) -> dict:
+    def version_aliases(self) -> ConfigDict:
         """Get the version aliases configuration."""
         return self["version_aliases"]
 
@@ -1200,11 +1215,11 @@ class Config:
             return [{"text": raw}]
         if isinstance(raw, list):
             result: list[dict[str, str]] = []
-            for item in raw:
+            for item in cast("list[object]", raw):
                 if isinstance(item, str):
                     result.append({"text": item})
                 elif isinstance(item, dict):
-                    result.append(item)
+                    result.append(cast("dict[str, str]", item))
             return result
         return []
 
@@ -1228,13 +1243,13 @@ class Config:
         if isinstance(fr, str):
             scripts.append(fr)
         elif isinstance(fr, list):
-            scripts.extend(s for s in fr if isinstance(s, str))
+            scripts.extend(s for s in cast("list[object]", fr) if isinstance(s, str))
         pr = self["pre_render"]
         if isinstance(pr, str):
             if pr not in scripts:
                 scripts.append(pr)
         elif isinstance(pr, list):
-            for s in pr:
+            for s in cast("list[object]", pr):
                 if isinstance(s, str) and s not in scripts:
                     scripts.append(s)
         return scripts
@@ -1255,7 +1270,7 @@ class Config:
         if isinstance(raw, str):
             return [raw]
         if isinstance(raw, list):
-            return [s for s in raw if isinstance(s, str)]
+            return [s for s in cast("list[object]", raw) if isinstance(s, str)]
         return []
 
     @property
@@ -1288,7 +1303,7 @@ class Config:
         if isinstance(raw, str):
             return [raw]
         if isinstance(raw, list):
-            return [s for s in raw if isinstance(s, str)]
+            return [s for s in cast("list[object]", raw) if isinstance(s, str)]
         return []
 
     @property
@@ -1305,11 +1320,13 @@ class Config:
         if raw is None or raw is False:
             return None
         if isinstance(raw, dict):
+            raw = cast("ConfigDict", raw)
             result: dict[str, dict[str, str]] = {}
             for scope in ("navbar", "sidebar"):
                 mapping = raw.get(scope)
                 if isinstance(mapping, dict):
-                    result[scope] = {str(k): str(v) for k, v in mapping.items()}
+                    pairs = cast("dict[object, object]", mapping).items()
+                    result[scope] = {str(k): str(v) for k, v in pairs}
             return result if result else None
         return None
 
@@ -1350,6 +1367,7 @@ class Config:
         if isinstance(raw, str):
             return {"light": raw, "dark": raw}
         if isinstance(raw, dict):
+            raw = cast("ConfigDict", raw)
             result: dict[str, str] = {}
             for key in ("light", "dark"):
                 val = raw.get(key)
@@ -1384,6 +1402,7 @@ class Config:
         if isinstance(raw, str):
             return {"light": raw, "dark": raw}
         if isinstance(raw, dict):
+            raw = cast("ConfigDict", raw)
             result: dict[str, str] = {}
             for key in ("light", "dark"):
                 val = raw.get(key)
@@ -1399,8 +1418,11 @@ class Config:
             raw = self["navbar_order"]
         except KeyError:
             return None
-        if isinstance(raw, list) and all(isinstance(item, str) for item in raw):
-            return raw
+        if isinstance(raw, list):
+            items = cast("list[object]", raw)
+            strings = [item for item in items if isinstance(item, str)]
+            if len(strings) == len(items):
+                return strings
         return None
 
     @property
@@ -1410,9 +1432,12 @@ class Config:
             raw = self["ref_section_order"]
         except KeyError:
             return None
-        if isinstance(raw, list) and all(isinstance(item, str) for item in raw):
-            valid = [s for s in raw if s in ("api", "cli", "mcp")]
-            return valid if valid else None
+        if isinstance(raw, list):
+            items = cast("list[object]", raw)
+            strings = [item for item in items if isinstance(item, str)]
+            if len(strings) == len(items):
+                valid = [s for s in strings if s in ("api", "cli", "mcp")]
+                return valid if valid else None
         return None
 
     @property
@@ -1433,7 +1458,7 @@ class Config:
         if raw is None or raw is False:
             return None
         if isinstance(raw, list):
-            return [s for s in raw if isinstance(s, str) and s.strip()]
+            return [s for s in cast("list[object]", raw) if isinstance(s, str) and s.strip()]
         if isinstance(raw, str):
             return [raw]
         return None
@@ -1632,7 +1657,7 @@ class Config:
         """Check if the configuration file exists."""
         return self.config_path.exists()
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> ConfigDict:
         """
         Get the full configuration as a dictionary.
 
