@@ -193,7 +193,7 @@ include = [
     "great_docs/config.py",
     "great_docs/contrast.py",
     "great_docs/hooks",
-    "great_docs/pandoc/__init__.py",
+    "great_docs/pandoc",
 ]
 exclude = [
     "**/__pycache__",

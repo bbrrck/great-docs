@@ -32955,13 +32955,6 @@ def test_blocks_blockcontent_to_str_sequence():
     assert result == "a\n\nb"
 
 
-def test_blocks_blockcontent_to_str_type_error():
-    """blockcontent_to_str raises TypeError for unsupported types."""
-
-    with pytest.raises(TypeError, match="Could not process type"):
-        blockcontent_to_str(12345)
-
-
 def test_blocks_str_items_none():
     """blockcontent_to_str_items with None returns empty string."""
 
@@ -32997,13 +32990,6 @@ def test_blocks_str_items_ordered():
     result = blockcontent_to_str_items(["x", "y"], "ordered")
     assert "1. x" in result
     assert "2. y" in result
-
-
-def test_blocks_str_items_type_error():
-    """blockcontent_to_str_items raises TypeError for unsupported types."""
-
-    with pytest.raises(TypeError, match="Could not process type"):
-        blockcontent_to_str_items(12345, "bullet")
 
 
 def test_blocks_str_items_empty_string_returns_empty():

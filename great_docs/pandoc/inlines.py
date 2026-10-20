@@ -5,16 +5,9 @@ Specification: https://pandoc.org/lua-filters.html#inline
 
 from __future__ import annotations
 
-import collections.abc as abc
-import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Sequence, Union
-
-if sys.version_info >= (3, 10):
-    from typing import TypeAlias
-else:
-    TypeAlias = "TypeAlias"  # pragma: no cover
+from typing import Sequence, TypeAlias
 
 from .components import Attr
 
@@ -37,25 +30,25 @@ SEP = " "
 class Inline:
     """Base class for inline elements."""
 
-    def __str__(self):
+    def __str__(self) -> str:
         raise NotImplementedError(f"__str__ method not implemented for: {type(self)}")
 
     @property
-    def html(self):
+    def html(self) -> str:
         raise NotImplementedError(f"html property method not implemented for: {type(self)}")
 
     @property
-    def as_list_item(self):
+    def as_list_item(self) -> str:
         return str_as_list_item(str(self))
 
 
-InlineContentItem = Union[str, Inline, None]
-InlineContent: TypeAlias = Union[InlineContentItem, Sequence[InlineContentItem]]
+InlineContentItem = str | Inline | None
+InlineContent: TypeAlias = InlineContentItem | Sequence[InlineContentItem]
 
 
 @dataclass
 class Inlines(Inline):
-    elements: Optional[Sequence[InlineContent]] = None
+    elements: Sequence[InlineContent] | None = None
 
     def __str__(self):
         if not self.elements:
@@ -69,7 +62,7 @@ class Inlines0(Inline):
     Tight Inline (rendered without space in-between)
     """
 
-    elements: Optional[Sequence[InlineContent]] = None
+    elements: Sequence[InlineContent] | None = None
 
     def __str__(self):
         if not self.elements:
@@ -79,7 +72,7 @@ class Inlines0(Inline):
 
 @dataclass
 class Str(Inline):
-    content: Optional[str] = None
+    content: str | None = None
 
     def __str__(self):
         return self.content or ""
@@ -87,8 +80,8 @@ class Str(Inline):
 
 @dataclass
 class Span(Inline):
-    content: Optional[InlineContent] = None
-    attr: Optional[Attr] = None
+    content: InlineContent | None = None
+    attr: Attr | None = None
 
     def __str__(self):
         content = inlinecontent_to_str(self.content)
@@ -98,10 +91,10 @@ class Span(Inline):
 
 @dataclass
 class Link(Inline):
-    content: Optional[InlineContent] = None
-    target: Optional[str] = None
-    title: Optional[str] = None
-    attr: Optional[Attr] = None
+    content: InlineContent | None = None
+    target: str | None = None
+    title: str | None = None
+    attr: Attr | None = None
 
     def __str__(self):
         title = f' "{self.title}"' if self.title else ""
@@ -112,8 +105,8 @@ class Link(Inline):
 
 @dataclass
 class Code(Inline):
-    text: Optional[str] = None
-    attr: Optional[Attr] = None
+    text: str | None = None
+    attr: Attr | None = None
 
     def __str__(self):
         content = self.text or ""
@@ -129,7 +122,7 @@ class Code(Inline):
 
 @dataclass
 class Strong(Inline):
-    content: Optional[InlineContent] = None
+    content: InlineContent | None = None
 
     def __str__(self):
         if not self.content:
@@ -140,7 +133,7 @@ class Strong(Inline):
 
 @dataclass
 class Emph(Inline):
-    content: Optional[InlineContent] = None
+    content: InlineContent | None = None
 
     def __str__(self):
         if not self.content:
@@ -151,10 +144,10 @@ class Emph(Inline):
 
 @dataclass
 class Image(Inline):
-    caption: Optional[str] = None
-    src: Optional[Path | str] = None
-    title: Optional[str] = None
-    attr: Optional[Attr] = None
+    caption: str | None = None
+    src: Path | str | None = None
+    title: str | None = None
+    attr: Attr | None = None
 
     def __str__(self):
         caption = self.caption or ""
@@ -171,15 +164,13 @@ def join_inline_content(content: Sequence[InlineContent], sep: str = SEP) -> str
     return sep.join(inlinecontent_to_str(c) for c in content if c)
 
 
-def inlinecontent_to_str(content: Optional[InlineContent]):
+def inlinecontent_to_str(content: InlineContent | None):
     if not content:
         return ""
     elif isinstance(content, (str, Inline)):
         return str(content)
-    elif isinstance(content, abc.Sequence):
-        return join_inline_content(content)
     else:
-        raise TypeError(f"Could not process type: {type(content)}")
+        return join_inline_content(content)
 
 
 def str_as_list_item(s: str) -> str:
