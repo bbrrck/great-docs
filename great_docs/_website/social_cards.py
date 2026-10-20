@@ -23,6 +23,7 @@ from .seo import description
 from .seo import title as seo_title
 
 if TYPE_CHECKING:
+    from .._yaml import YamlMapping
     from ..config import Config
 
 PAGE_KEYS = ("open-graph", "twitter-card")
@@ -121,14 +122,15 @@ def register(
     website["twitter-card"] = twitter_card or True
 
 
-def page_title(title: object, site_name: str | None, config: Config) -> str | None:
+def page_title(title: str | None, site_name: str | None, config: Config) -> str | None:
     """
     Build the card title that matches a page's `<title>`
 
     Parameters
     ----------
     title
-        The page's `title` front matter, which may have any type.
+        The page title, or `None` when the `title` front matter value is
+        absent or not a string.
     site_name
         The site's `website.title`.
     config
@@ -141,7 +143,7 @@ def page_title(title: object, site_name: str | None, config: Config) -> str | No
         already matches `<title>`. Use the site name for an empty title to
         avoid Quarto's leading dash.
     """
-    if not isinstance(title, str) or not site_name:
+    if title is None or not site_name:
         return None
     if not title.strip():
         return description.as_metadata(site_name)
@@ -154,7 +156,7 @@ def page_title(title: object, site_name: str | None, config: Config) -> str | No
 
 
 def page_entries(
-    front_matter: dict[str, Any],
+    front_matter: YamlMapping,
     body: str,
     page_dir: Path,
     site_name: str | None,
@@ -201,11 +203,11 @@ def page_entries(
         return entries
 
     card: dict[str, str] = {}
-    if value := page_title(front_matter.get("title"), site_name, config):
+    if value := page_title(front_matter.string("title"), site_name, config):
         card["title"] = value
     # A page's own `description` reaches its card unaided; `description-meta` does not
-    own = front_matter.get("description-meta")
-    if isinstance(own, str):
+    own = front_matter.string("description-meta")
+    if own is not None:
         value = own
     elif header_description and "description" not in front_matter:
         value = header_description

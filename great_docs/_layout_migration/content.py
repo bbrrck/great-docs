@@ -7,19 +7,19 @@ import io
 import json
 import os
 import re
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeAlias
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
-import yaml
-from yaml.events import AliasEvent
+from yaml import BaseLoader, YAMLError
 from yaml.nodes import MappingNode, Node, ScalarNode, SequenceNode
 from yaml12 import read_yaml
 
 from great_docs._content_naming import strip_numeric_prefix
 from great_docs._source_refs import fenced_code_spans, inline_code_spans, source_reference_spans
+from great_docs._yaml import YamlScalar, YamlValue
 
 from .model import (
     DuplicateYAMLKey,
@@ -32,6 +32,7 @@ from .model import (
 )
 
 ConfigPath = tuple[str | int, ...]
+ConfigMapping: TypeAlias = dict[YamlScalar, YamlValue]
 
 
 @dataclass(frozen=True)
@@ -153,7 +154,7 @@ _PATH_FIELDS = (
 )
 
 
-def read_config(text: str) -> dict[str, Any]:
+def read_config(text: str) -> ConfigMapping:
     """Read the unmerged configuration with the project's YAML 1.2 semantics"""
     try:
         value = read_yaml(io.StringIO(text))
@@ -166,11 +167,11 @@ def read_config(text: str) -> dict[str, Any]:
     return value
 
 
-def config_paths(config: dict[str, Any]) -> Iterator[tuple[ConfigPath, str]]:
+def config_paths(config: ConfigMapping) -> Iterator[tuple[ConfigPath, str]]:
     """Yield documented source-path scalars without treating ordering entries as paths"""
 
     def descend(
-        value: Any, pattern: tuple[str, ...], path: ConfigPath
+        value: YamlValue, pattern: tuple[str, ...], path: ConfigPath
     ) -> Iterator[tuple[ConfigPath, str]]:
         if not pattern:
             if isinstance(value, str) and value:
@@ -197,17 +198,9 @@ def local_path(value: str, source_dir: Path) -> Path | None:
 
 def _nodes(text: str) -> tuple[dict[ConfigPath, Node], set[int]]:
     try:
-        root = yaml.compose(text, Loader=yaml.BaseLoader)
-        events = list(yaml.parse(text, Loader=yaml.BaseLoader))
-    except yaml.YAMLError as error:
+        root = BaseLoader(text).get_single_node()
+    except YAMLError as error:
         raise MigrationError(f"Cannot locate configuration source spans: {error}") from error
-    unsafe = {
-        event.start_mark.index
-        for event in events
-        if isinstance(event, AliasEvent)
-        or getattr(event, "anchor", None)
-        or getattr(event, "tag", None)
-    }
     nodes: dict[ConfigPath, Node] = {}
 
     def visit(node: Node, path: ConfigPath, ancestors: frozenset[int]) -> None:
@@ -229,6 +222,13 @@ def _nodes(text: str) -> tuple[dict[ConfigPath, Node], set[int]]:
 
     if root is not None:
         visit(root, (), frozenset())
+    # A node's span starts at its first property, so an anchored or tagged
+    # node starts with its indicator. An alias composes to the anchored node.
+    unsafe = {
+        node.start_mark.index
+        for node in nodes.values()
+        if text[node.start_mark.index : node.start_mark.index + 1] in {"&", "!"}
+    }
     return nodes, unsafe
 
 
@@ -267,7 +267,7 @@ def _scalar(value: str, node: ScalarNode) -> str:
     )
 
 
-def _set(config: dict[str, Any], path: ConfigPath, value: Any) -> None:
+def _set(config: ConfigMapping, path: ConfigPath, value: Any) -> None:
     parent: Any = config
     for position, key in enumerate(path[:-1]):
         if isinstance(key, int):
@@ -281,13 +281,10 @@ def _set(config: dict[str, Any], path: ConfigPath, value: Any) -> None:
         # by the next key rather than the current value's type: an existing value
         # of the wrong shape (e.g. a list where a dict is needed) must still be
         # overwritten, the same as a missing one, rather than raising.
-        next_key = path[position + 1]
-        expected = list if isinstance(next_key, int) else dict
-        existing = parent.get(key)
-        if not isinstance(existing, expected):
-            existing = expected()
-            parent[key] = existing
-        parent = existing
+        wants_list = isinstance(path[position + 1], int)
+        if not isinstance(parent.get(key), list if wants_list else dict):
+            parent[key] = [] if wants_list else {}
+        parent = parent[key]
     parent[path[-1]] = value
 
 
@@ -297,7 +294,7 @@ def rewrite_config(
     source_dir: Path,
     destination: Path,
     *,
-    pinned: frozenset[ConfigPath] = frozenset(),
+    pinned: Collection[ConfigPath] = (),
 ) -> str:
     """
     Rebase documented path scalars while preserving all surrounding YAML bytes
@@ -419,16 +416,18 @@ def _rewrite_bibliography(
     """
     config = read_config(frontmatter)
     value = config.get("bibliography")
+    items = [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
     if isinstance(value, str):
         entries: tuple[tuple[ConfigPath, str], ...] = ((("bibliography",), value),)
-    elif isinstance(value, list) and value and all(isinstance(item, str) for item in value):
-        entries = tuple((("bibliography", index), item) for index, item in enumerate(value))
+    elif isinstance(value, list) and value and len(items) == len(value):
+        entries = tuple((("bibliography", index), item) for index, item in enumerate(items))
     else:
         raise MigrationError("Bibliography must be a path or a nonempty list of paths")
     nodes, unsafe = _nodes(frontmatter)
     _check_span(("bibliography",), nodes, unsafe)
     expected = copy.deepcopy(config)
     replacements: list[tuple[int, int, str]] = []
+    rebased: list[YamlValue] = []
     inputs: set[Path] = set()
     for path, original in entries:
         target = local_path(original, source.parent)
@@ -447,10 +446,8 @@ def _rewrite_bibliography(
             replacements.append(
                 (node.start_mark.index, node.end_mark.index, _scalar(replacement, node))
             )
-        if len(path) == 1:
-            expected["bibliography"] = replacement
-        else:
-            expected["bibliography"][path[1]] = replacement
+        rebased.append(replacement)
+    expected["bibliography"] = rebased[0] if isinstance(value, str) else rebased
     for start, end, replacement in sorted(replacements, reverse=True):
         frontmatter = frontmatter[:start] + replacement + frontmatter[end:]
     if read_config(frontmatter) != expected:

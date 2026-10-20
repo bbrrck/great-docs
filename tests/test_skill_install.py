@@ -8,57 +8,13 @@ from unittest.mock import patch
 from great_docs._skill_install import (
     _find_existing_installations,
     _find_package_skills,
-    _parse_frontmatter,
     _resolve_skill_dir,
     check_skill,
     detect_agents,
     install_skill,
     list_skills,
 )
-
-# ---------------------------------------------------------------------------
-# _parse_frontmatter
-# ---------------------------------------------------------------------------
-
-
-class TestParseFrontmatter:
-    def test_basic_frontmatter(self):
-        content = "---\nname: my-skill\ndescription: A skill\n---\n\n# Body"
-        fm, body = _parse_frontmatter(content)
-
-        assert fm["name"] == "my-skill"
-        assert fm["description"] == "A skill"
-        assert body.startswith("# Body")
-
-    def test_no_frontmatter(self):
-        content = "# Just a heading\n\nSome text."
-        fm, body = _parse_frontmatter(content)
-
-        assert fm == {}
-        assert body == content
-
-    def test_empty_frontmatter(self):
-        content = "---\n---\n\n# Body"
-        fm, body = _parse_frontmatter(content)
-
-        assert fm == {}
-
-    def test_invalid_yaml(self):
-        content = "---\n: invalid: yaml: [[\n---\n\nBody"
-        fm, body = _parse_frontmatter(content)
-
-        assert fm == {}
-
-    def test_frontmatter_with_metadata(self):
-        content = (
-            "---\nname: pkg\ndescription: desc\n"
-            "metadata:\n  version: '1.0'\n  author: test\n---\n\nBody"
-        )
-        fm, body = _parse_frontmatter(content)
-
-        assert fm["name"] == "pkg"
-        assert fm["metadata"]["version"] == "1.0"
-
+from great_docs._yaml import split_front_matter
 
 # ---------------------------------------------------------------------------
 # detect_agents
@@ -348,6 +304,18 @@ class TestCheckSkill:
             assert results[0]["name"] == "my-pkg"
             assert results[0]["installed_pkg_version"] == "0.5.0"
             assert results[0]["agent"] == "claude"
+
+    def test_check_skill_with_non_mapping_metadata(self):
+        """Verify that non-mapping skill metadata produces an unknown package version"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            skill_dir = root / ".claude" / "skills" / "my-pkg"
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text("---\nname: my-pkg\nmetadata: 1.0\n---\n\n# Body")
+
+            results = check_skill(root=root, quiet=True)
+
+            assert [(r["name"], r["installed_pkg_version"]) for r in results] == [("my-pkg", "unknown")]
 
     def test_check_multiple_agents(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -664,28 +632,6 @@ class TestConfigSkillSkills:
 
             assert len(cfg.skill_skills) == 2
             assert cfg.skill_skills[0]["name"] == "a"
-
-
-# ---------------------------------------------------------------------------
-# _parse_frontmatter — non-dict YAML
-# ---------------------------------------------------------------------------
-
-
-class TestParseFrontmatterEdgeCases:
-    def test_non_dict_frontmatter_returns_empty(self):
-        """Non-dict YAML frontmatter (e.g. a bare list) returns ({}, content)."""
-        content = "---\n- item1\n- item2\n---\nBody"
-        fm, body = _parse_frontmatter(content)
-
-        assert fm == {}
-        assert "Body" in body
-
-    def test_only_two_dashes_parts_returns_empty(self):
-        """Frontmatter with only one --- (no closing) returns ({}, original)."""
-        content = "---\nname: x\n"
-        fm, body = _parse_frontmatter(content)
-
-        assert fm == {}
 
 
 # ---------------------------------------------------------------------------
@@ -1096,10 +1042,12 @@ class TestStampInstallMetadata:
         raw = "---\nname: my-skill\n---\nBody"
         stamped = _stamp_install_metadata(raw, "2.0.0")
 
-        fm, _ = _parse_frontmatter(stamped)
+        fm, _ = split_front_matter(stamped)
 
-        assert fm["metadata"]["package_version"] == "2.0.0"
-        assert fm["metadata"]["content_hash"] == _content_hash(raw)
+        assert fm.mapping("metadata").data == {
+            "package_version": "2.0.0",
+            "content_hash": _content_hash(raw),
+        }
 
     def test_no_frontmatter_returns_original(self):
         from great_docs._skill_install import _stamp_install_metadata
@@ -1116,11 +1064,11 @@ class TestStampInstallMetadata:
         stamped = _stamp_install_metadata(raw, "1.0")
         stamped2 = _stamp_install_metadata(stamped, "1.1")
 
-        fm, _ = _parse_frontmatter(stamped2)
+        fm, _ = split_front_matter(stamped2)
 
         # The hash embedded in stamped uses raw as source; stamped2's hash uses stamped as source
         # Key property: the function always hashes whatever it receives
-        assert "content_hash" in fm["metadata"]
+        assert "content_hash" in fm.mapping("metadata")
 
 
 # ---------------------------------------------------------------------------

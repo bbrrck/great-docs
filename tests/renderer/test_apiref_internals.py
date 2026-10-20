@@ -188,14 +188,12 @@ def test_render_type_object_with_type_input():
 
 
 def test_docstring_section_patched_duplicate_registration_raises():
-    """Registering two _DocstringSectionPatched subclasses with the same kind raises KeyError."""
-    from great_docs._apiref._docstring_sections import DocstringSectionKindPatched
-
-    # Use the see_also kind which is already registered — registering again must raise
+    """Verify that registering a duplicate section title raises `KeyError`"""
+    # "see also" is already registered, so registering it again must raise
     with pytest.raises(KeyError):
 
-        class _Duplicate(_DocstringSectionPatched):
-            kind = DocstringSectionKindPatched.see_also  # type: ignore[assignment]
+        class _Duplicate(_DocstringSectionPatched, title="see also"):
+            pass
 
 
 # ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@ import pytest
 from great_docs._apiref import RenderDocFunction, content
 from great_docs._apiref._docstring_sections import DocstringSectionSeeAlso, transform
 from great_docs._apiref.api_reference import Settings
-from great_docs._apiref.resolve import _Resolver
+from great_docs._apiref.resolve import Resolver
 from great_docs._apiref.spec import SpecSection
 from great_docs._builtin.directives._seealso import add_seealso
 
@@ -300,7 +300,7 @@ def test_resolving_the_same_object_twice_keeps_seealso():
 
 def test_duplicate_reference_entries_keep_seealso():
     obj = _obj("Summary.\n\n%seealso target : Related.")
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.current_package = "pkg"
     resolver.get_object = lambda *_args, **_kwargs: obj
     section = SpecSection(title="Functions", contents=["f", "f"])

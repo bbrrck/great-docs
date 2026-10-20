@@ -65,9 +65,9 @@ type-check: ## Run type checking with mypy
 	@$(PYTHON) -m mypy great_docs --python-version 3.11
 	@$(PYTHON) -m mypy great_docs --python-version 3.12
 
-.PHONY: type-check-renderer
-type-check-renderer: ## Run type checking with pyright on the renderer
-	@$(PYTHON) -m pyright great_docs/_apiref/_render
+.PHONY: type-check-strict
+type-check-strict: ## Run strict type checking with pyright
+	@$(PYTHON) -m pyright
 
 .PHONY: check
 check: lint test ## Run all checks (lint and test)

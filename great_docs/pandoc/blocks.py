@@ -5,19 +5,12 @@ Specification: https://pandoc.org/lua-filters.html#block
 
 from __future__ import annotations
 
-import collections.abc as abc
 import itertools
-import sys
 from dataclasses import dataclass
 from textwrap import indent
-from typing import Any, Literal, Optional, Sequence, Union
+from typing import Any, Literal, Sequence, TypeAlias
 
 from yaml12 import format_yaml
-
-if sys.version_info >= (3, 10):
-    from typing import TypeAlias
-else:
-    TypeAlias = "TypeAlias"
 
 from .components import Attr
 from .inlines import (
@@ -49,26 +42,26 @@ SEP = "\n"
 class Block:
     """Base class for block elements."""
 
-    def __str__(self):
+    def __str__(self) -> str:
         raise NotImplementedError(f"__str__ method not implemented for: {type(self)}")
 
     @property
-    def html(self):
+    def html(self) -> str:
         raise NotImplementedError(f"html property method not implemented for: {type(self)}")
 
     @property
-    def as_list_item(self):
+    def as_list_item(self) -> str:
         return f"{self}\n\n"
 
 
-BlockContentItem: TypeAlias = Union[InlineContentItem, Block]
-BlockContent: TypeAlias = Union[BlockContentItem, Sequence[BlockContentItem]]
+BlockContentItem: TypeAlias = InlineContentItem | Block
+BlockContent: TypeAlias = BlockContentItem | Sequence[BlockContentItem]
 DefinitionItem: TypeAlias = tuple[InlineContent, BlockContent]
 
 
 @dataclass
 class Blocks(Block):
-    elements: Optional[Sequence[BlockContent]] = None
+    elements: Sequence[BlockContent] | None = None
 
     def __str__(self):
         if not self.elements:
@@ -85,8 +78,8 @@ Div_TPL = """\
 
 @dataclass
 class Div(Block):
-    content: Optional[BlockContent] = None
-    attr: Optional[Attr] = None
+    content: BlockContent | None = None
+    attr: Attr | None = None
 
     def __str__(self):
         content = blockcontent_to_str(self.content)
@@ -106,7 +99,7 @@ Definition_TPL = """
 
 @dataclass
 class DefinitionList(Block):
-    content: Optional[Sequence[DefinitionItem]] = None
+    content: Sequence[DefinitionItem] | None = None
 
     def __str__(self):
         if not self.content:
@@ -114,9 +107,9 @@ class DefinitionList(Block):
 
         tfmt = DefinitionItem_TPL.format
         dfmt = Definition_TPL.format
-        items = []
+        items: list[str] = []
         for term, definitions in self.content:
-            term, defs = inlinecontent_to_str(term), []
+            defs: list[str] = []
 
             if isinstance(definitions, (str, Inline, Block)):
                 definitions = [definitions]
@@ -127,14 +120,14 @@ class DefinitionList(Block):
                 s = blockcontent_to_str(definition)
                 defs.append(dfmt(definition=indent(s, INDENT).strip()))
 
-            items.append(tfmt(term=term, definitions="".join(defs)))
+            items.append(tfmt(term=inlinecontent_to_str(term), definitions="".join(defs)))
 
         return join_block_content(items)
 
 
 @dataclass
 class Plain(Block):
-    content: Optional[InlineContent] = None
+    content: InlineContent | None = None
 
     def __str__(self):
         return inlinecontent_to_str(self.content)
@@ -142,7 +135,7 @@ class Plain(Block):
 
 @dataclass
 class Para(Block):
-    content: Optional[InlineContent] = None
+    content: InlineContent | None = None
 
     def __str__(self):
         content = inlinecontent_to_str(self.content)
@@ -157,8 +150,8 @@ class Para(Block):
 @dataclass
 class Header(Block):
     level: int
-    content: Optional[InlineContent] = None
-    attr: Optional[Attr] = None
+    content: InlineContent | None = None
+    attr: Attr | None = None
 
     def __str__(self):
         hashes = "#" * self.level
@@ -181,8 +174,8 @@ CodeBlockHTML_TPL = """\
 
 @dataclass
 class CodeBlock(Block):
-    content: Optional[str] = None
-    attr: Optional[Attr] = None
+    content: str | None = None
+    attr: Attr | None = None
 
     def __str__(self):
         content = self.content or ""
@@ -213,7 +206,7 @@ class CodeBlock(Block):
 
 @dataclass
 class BulletList(Block):
-    content: Optional[BlockContent] = None
+    content: BlockContent | None = None
 
     def __str__(self):
         if not self.content:
@@ -223,7 +216,7 @@ class BulletList(Block):
 
 @dataclass
 class OrderedList(Block):
-    content: Optional[BlockContent] = None
+    content: BlockContent | None = None
 
     def __str__(self):
         if not self.content:
@@ -238,19 +231,17 @@ def join_block_content(content: Sequence[BlockContent]) -> str:
     return f"{SEP}{SEP}".join(blockcontent_to_str(c) for c in content if c)
 
 
-def blockcontent_to_str(content: Optional[BlockContent]) -> str:
+def blockcontent_to_str(content: BlockContent | None) -> str:
     if not content:
         return ""
     elif isinstance(content, (str, Inline, Block)):
         return str(content).rstrip(SEP)
-    elif isinstance(content, abc.Sequence):
-        return join_block_content(content)
     else:
-        raise TypeError(f"Could not process type: {type(content)}")
+        return join_block_content(content)
 
 
 def blockcontent_to_str_items(
-    content: Optional[BlockContent], kind: Literal["bullet", "ordered"]
+    content: BlockContent | None, kind: Literal["bullet", "ordered"]
 ) -> str:
     def fmt(s: str, pfx: str):
         if not s:
@@ -276,12 +267,10 @@ def blockcontent_to_str_items(
         return fmt(str_as_list_item(content), next(pfx_it))
     elif isinstance(content, (Inline, Block)):
         return fmt(content.as_list_item, next(pfx_it))
-    elif isinstance(content, abc.Sequence):
+    else:
         it = (str_as_list_item(c) if isinstance(c, str) else c.as_list_item for c in content if c)
         items = (fmt(s, next(pfx_it)) for s in it)
         return "".join(items).strip()
-    else:
-        raise TypeError(f"Could not process type: {type(content)}")
 
 
 # Custom blocks (great-docs extensions) ----------------------------------------

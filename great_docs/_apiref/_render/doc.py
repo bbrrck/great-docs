@@ -33,6 +33,7 @@ from .._docstring_sections import (
     ExampleCode,
     ExampleText,
     transform,
+    transform_sections,
 )
 from .._format import (
     HAS_RUFF,
@@ -181,7 +182,7 @@ class __RenderDoc(RenderBase):
         self.doc = cast("content.Doc", self.node)
         """Doc Object"""
 
-        self.obj = cast("gf.Object | gf.Alias", self.doc.obj)
+        self.obj = self.doc.obj
         """Griffe object (or alias)"""
 
     @cached_property
@@ -397,10 +398,7 @@ class __RenderDoc(RenderBase):
         """
         if not self.obj.docstring:
             return []
-        return cast(
-            "list[gf.DocstringSection]",
-            transform(self.obj.docstring.parsed),
-        )
+        return transform_sections(self.obj.docstring.parsed)
 
     @cached_property
     def docstring_subject(self) -> str | None:
@@ -817,6 +815,11 @@ class __RenderDoc(RenderBase):
         try:
             filepath = self.obj.filepath
         except (ValueError, AttributeError):
+            filepath = None
+
+        # A namespace package can span several directories and has no single
+        # source file. Use Griffe's package-relative path in step 3.
+        if isinstance(filepath, list):
             filepath = None
 
         # 1. Explicit override for monorepos: `<source.path>/<filename>`.

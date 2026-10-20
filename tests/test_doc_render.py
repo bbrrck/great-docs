@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import types
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import griffe as gf
@@ -182,5 +183,29 @@ class TestSourceRelativePathValueError:
         result = cls.__dict__["_source_relative_path"](fake_self)
 
         assert result == "mod.py"
+
+        _globals.package_info.cache_clear()
+
+
+class TestSourceRelativePathNamespacePackage:
+    def test_list_filepath_falls_back_to_package_relative_path(self, monkeypatch):
+        """Verify that a namespace package uses its package-relative source path"""
+        from great_docs._apiref import _globals
+
+        cls = _get_private_cls()
+
+        monkeypatch.delenv("SOURCE_PATH", raising=False)
+        monkeypatch.setenv("PACKAGE_ROOT", "/repo")
+        _globals.package_info.cache_clear()
+
+        obj = types.SimpleNamespace(
+            filepath=[Path("/repo/a/ns"), Path("/repo/b/ns")],
+            relative_package_filepath="ns",
+        )
+        fake_self = types.SimpleNamespace(obj=obj)
+
+        result = cls.__dict__["_source_relative_path"](fake_self)
+
+        assert result == "ns"
 
         _globals.package_info.cache_clear()

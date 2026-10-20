@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from . import head
 
@@ -78,7 +78,12 @@ def address(base_url: str, page_path: str) -> str:
 
 
 def register(
-    quarto_config: dict, config: Config, base_url: str | None, project_dir: Path, *, og_url: bool
+    quarto_config: dict[str, Any],
+    config: Config,
+    base_url: str | None,
+    project_dir: Path,
+    *,
+    og_url: bool,
 ) -> None:
     """
     Register canonical-link and Open Graph URL tags for rendered pages

@@ -8,9 +8,10 @@ CSS adds the prefix using custom properties declared in the site's language.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from ..._translations import get_translations_bundle
+from ..._yaml import YamlMapping
 
 if TYPE_CHECKING:
     from ...config import Config
@@ -37,7 +38,7 @@ def _css_string(text: str) -> str:
     return f'"{escaped}"'
 
 
-def register(quarto_config: dict, config: Config) -> None:
+def register(quarto_config: dict[str, Any], config: Config) -> None:
     """
     Add translated navigation prefixes to the HTML header
 
@@ -54,6 +55,7 @@ def register(quarto_config: dict, config: Config) -> None:
     html_config = quarto_config.get("format", {}).get("html")
     if not isinstance(html_config, dict):
         return
+    html_config = cast("dict[str, Any]", html_config)
 
     bundle = get_translations_bundle(config.lang)
     # MCP is a protocol name, so it is not translated.
@@ -62,8 +64,6 @@ def register(quarto_config: dict, config: Config) -> None:
         f"--gd-nav-prefix-{kind}:{_css_string(text)};" for kind, text in prefixes.items()
     )
 
-    headers = html_config.get("include-in-header", [])
-    if isinstance(headers, str):
-        headers = [headers]
+    headers = YamlMapping(html_config).entries("include-in-header")
     headers.append({"text": f"<style>:root{{{declarations}}}</style>"})
     html_config["include-in-header"] = headers

@@ -126,7 +126,7 @@ class __RenderDocClass(RenderDocMembersMixin, RenderDocCallMixin, RenderDoc):
         return gf.Parameters(*lst)
 
     @cached_property
-    def init_parameters(self) -> gf.parameters:
+    def init_parameters(self) -> gf.Parameters:
         if not self.is_dataclass:
             return gf.Parameters()
 

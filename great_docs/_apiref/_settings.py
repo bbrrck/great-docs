@@ -10,7 +10,7 @@ from dataclasses import fields as dc_fields
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
 
 
 @dataclass
@@ -70,7 +70,7 @@ class Settings:
             for k in _SETTINGS_KEYS
             if k in block and not (k == "out_index" and block[k] is None)
         }
-        signatures = kwargs.get("callable_signatures")
+        signatures: dict[str, Any] | None = kwargs.get("callable_signatures")
         if isinstance(signatures, dict):
             kwargs["callable_signatures"] = CallableSignatures(**signatures)
 
@@ -93,7 +93,7 @@ _SETTINGS_KEYS = {f.name for f in dc_fields(Settings)} - {"version", "lang"}
 
 
 @contextmanager
-def active_settings(settings: Settings) -> Iterator[None]:
+def active_settings(settings: Settings) -> Generator[None]:
     """
     Make `settings` the ones the render classes read, for one build
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import fields as dc_fields
+from typing import cast
 
 import griffe as gf
 
@@ -15,7 +16,7 @@ from ._docstring_sections import ExampleCode, ExampleText, transform
 from ._walkable import MISSING, Walkable
 
 
-def fields(el: object) -> list[str] | list[int] | None:
+def fields(el: object) -> list[object] | None:
     """List the relevant fields for an object, for preview purposes"""
 
     # dataclass types (ExampleCode, ExampleText)
@@ -75,14 +76,14 @@ def fields(el: object) -> list[str] | list[int] | None:
     if isinstance(el, Walkable):
         field_defaults = {f.name: f.default for f in dc_fields(el)}
         return [
-            k for k, v in el._iter_fields() if field_defaults.get(k) is not v and v is not MISSING
+            k for k, v in el.iter_fields() if field_defaults.get(k) is not v and v is not MISSING
         ]
 
     if isinstance(el, dict):
-        return list(el.keys())
+        return list(cast("dict[object, object]", el))
 
     if isinstance(el, (list, gf.Parameters)):
-        return list(range(len(el)))
+        return list(range(len(cast("list[object] | gf.Parameters", el))))
 
     return None
 
@@ -121,7 +122,7 @@ class Formatter:
         if depth >= self.max_depth:
             return call_str + self.string_truncate_mark
 
-        fields_str = []
+        fields_str: list[str] = []
         for name in current_fields:
             val = self.get_field(call, name)
 
@@ -135,7 +136,7 @@ class Formatter:
             formatted_val = self.format(val, depth + 1, pad=sub_pad)
             fields_str.append(f"{name} = {linebreak}{formatted_val}")
 
-        padded = []
+        padded: list[str] = []
         for ii, entry in enumerate(fields_str):
             is_final = ii == len(fields_str) - 1
 
@@ -144,11 +145,16 @@ class Formatter:
 
         return "".join([call_str, *padded])
 
-    def get_field(self, obj: object, k: str | int) -> object:
-        if isinstance(obj, (dict, list, gf.Parameters)):
-            return obj[k]
+    def get_field(self, obj: object, k: object) -> object:
+        if isinstance(obj, dict):
+            return cast("dict[object, object]", obj)[k]
 
-        return getattr(obj, k)
+        if isinstance(obj, (list, gf.Parameters)):
+            # Lists and parameter collections use positional field indices.
+            assert isinstance(k, int)
+            return cast("list[object] | gf.Parameters", obj)[k]
+
+        return getattr(obj, str(k))
 
     def fmt_pipe(self, x: str, is_final: bool = False, pad: int = 0) -> str:
         if not is_final:

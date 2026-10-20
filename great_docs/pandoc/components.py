@@ -9,7 +9,7 @@ import typing
 from dataclasses import dataclass
 
 if typing.TYPE_CHECKING:
-    from typing import Optional, Sequence  # pragma: no cover
+    from typing import Sequence  # pragma: no cover
 
 __all__ = ("Attr",)
 
@@ -20,12 +20,12 @@ class Attr:
     A set of attributes (`Attr`)
     """
 
-    identifier: Optional[str] = None
-    classes: Optional[Sequence[str]] = None
-    attributes: Optional[dict[str, str]] = None
+    identifier: str | None = None
+    classes: Sequence[str] | None = None
+    attributes: dict[str, str] | None = None
 
-    def __str__(self):
-        parts = []
+    def __str__(self) -> str:
+        parts: list[str] = []
         if self.identifier:
             parts.append(f"#{self.identifier}")
 
@@ -38,8 +38,8 @@ class Attr:
         return " ".join(parts)
 
     @property
-    def html(self):
-        parts = []
+    def html(self) -> str:
+        parts: list[str] = []
 
         if self.identifier:
             parts.append(f'id="{self.identifier}"')

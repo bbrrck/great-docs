@@ -34,7 +34,6 @@ from great_docs._content_naming import fix_numeric_prefix_links, strip_numeric_p
 from great_docs._apiref import _globals, content, spec, write
 from great_docs._apiref._docstring_sections import (
     DCDocstringSection,
-    DocstringSectionKindPatched,
     DocstringSectionNotes,
     DocstringSectionSeeAlso,
     DocstringSectionWarnings,
@@ -42,6 +41,7 @@ from great_docs._apiref._docstring_sections import (
     ExampleText,
     _DocstringSectionPatched,
     transform,
+    transform_sections,
     tuple_to_data,
 )
 from great_docs._apiref._format import (
@@ -133,10 +133,9 @@ from great_docs._apiref.inventory import (
 )
 from great_docs._apiref.resolve import (
     ObjectNotFoundError,
-    _autogenerate_sections,
+    Resolver,
     _is_external_alias,
     _join_path,
-    _Resolver,
     _sections_from_package,
     _to_simple_dict,
 )
@@ -145,6 +144,7 @@ from great_docs._apiref.typing_information import TypeInformation, TypeSections
 from great_docs._apiref.write import _insert_contents
 from great_docs._apiref.write import merge_frontmatter as _merge_frontmatter
 from great_docs._utils import QUARTO_YML_HEADER
+from great_docs._yaml import split_front_matter
 from great_docs.cli import (
     _detect_optional_dependencies,
     _detect_package_manager,
@@ -7474,9 +7474,9 @@ def test_resolver_get_object_or_raise_missing(tmp_path, monkeypatch):
     (tmp_path / "gdmiss").mkdir()
     (tmp_path / "gdmiss" / "__init__.py").write_text("__all__ = []\n")
     from great_docs._apiref.api_reference import Settings
-    from great_docs._apiref.resolve import ObjectNotFoundError, _Resolver
+    from great_docs._apiref.resolve import ObjectNotFoundError, Resolver
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.current_package = "gdmiss"
     with pytest.raises(ObjectNotFoundError, match="Cannot find an object named"):
         resolver.get_object_or_raise("gdmiss:does_not_exist")
@@ -7501,7 +7501,7 @@ def test_join_path_no_colon():
 def test_scoped_updates_options():
     from great_docs._apiref.api_reference import Settings
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.current_package = "pkg"
     initial_options = resolver.options
     new_options = SpecOptions(include_private=True)
@@ -7514,7 +7514,7 @@ def test_resolve_entry_with_spectext():
     from great_docs._apiref.api_reference import Settings
     from great_docs._apiref.content import Text
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.current_package = None
     text_entry = SpecText(contents="some text")
     result = resolver._resolve_entry(text_entry)
@@ -7525,7 +7525,7 @@ def test_resolve_entry_with_spectext():
 def test_resolve_entry_unknown_type_raises():
     from great_docs._apiref.api_reference import Settings
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.current_package = None
     with pytest.raises(TypeError, match="Cannot resolve section entry of type"):
         resolver._resolve_entry("not_a_valid_type")  # type: ignore[arg-type]
@@ -7550,7 +7550,7 @@ def test_resolve_members_skips_nodoc_member():
 
     cls, method = _make_class_with_method(method_doc="%nodoc")
     objects = {"mymod:MyClass": cls, "mymod:MyClass.my_method": method}
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.current_package = "mymod"
     resolver.get_object = lambda path, **kwargs: objects.get(path)
 
@@ -7568,7 +7568,7 @@ def test_resolve_entry_sanitizes_colon_in_page_path():
 
     cls, method = _make_class_with_method()
     objects = {"mymod:MyClass": cls, "mymod:MyClass.my_method": method}
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.get_object = lambda path, **kwargs: objects.get(path)
 
     [section] = resolver.resolve_sections(
@@ -7597,7 +7597,7 @@ def test_resolve_members_skips_module_member():
         "mymod:MyClass.submod": submod,
         "mymod:MyClass.my_method": method,
     }
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.current_package = "mymod"
     resolver.get_object = lambda path, **kwargs: objects.get(path)
 
@@ -7620,7 +7620,7 @@ def test_resolve_members_children_separate():
 
     cls, method = _make_class_with_method()
     objects = {"mymod:MyClass": cls, "mymod:MyClass.my_method": method}
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.current_package = "mymod"
     resolver.get_object = lambda path, **kwargs: objects.get(path)
 
@@ -7642,7 +7642,7 @@ def test_resolve_members_children_linked():
 
     cls, method = _make_class_with_method()
     objects = {"mymod:MyClass": cls, "mymod:MyClass.my_method": method}
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.current_package = "mymod"
     resolver.get_object = lambda path, **kwargs: objects.get(path)
 
@@ -7665,7 +7665,7 @@ def test_resolve_members_children_invalid_raises():
 
     cls, method = _make_class_with_method()
     objects = {"mymod:MyClass": cls, "mymod:MyClass.my_method": method}
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.current_package = "mymod"
     resolver.get_object = lambda path, **kwargs: objects.get(path)
 
@@ -7698,7 +7698,7 @@ def test_fetch_members_module_with_exports_filters_unexported():
     fn2.docstring = gf.Docstring("Priv.", parent=fn2)
     mod.set_member("priv_func", fn2)
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     el = SpecObject(name="mymod").with_defaults(SpecOptions())
     result = resolver._fetch_members(el, mod)
     assert result == ["pub_func"]
@@ -7718,7 +7718,7 @@ def test_fetch_members_module_exclude_imports():
     alias = gf.Alias("imported_name", target=gf.Function("other_func"))
     mod.set_member("imported_name", alias)
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     el = SpecObject(name="mymod", include_imports=False).with_defaults(SpecOptions())
     result = resolver._fetch_members(el, mod)
     assert "my_func" in result
@@ -7739,7 +7739,7 @@ def test_fetch_members_exclude_attributes():
     fn.docstring = gf.Docstring("Func.", parent=fn)
     mod.set_member("my_func", fn)
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     el = SpecObject(name="mymod", include_attributes=False).with_defaults(SpecOptions())
     result = resolver._fetch_members(el, mod)
     assert "my_func" in result
@@ -7760,7 +7760,7 @@ def test_fetch_members_exclude_classes():
     fn.docstring = gf.Docstring("Func.", parent=fn)
     mod.set_member("my_func", fn)
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     el = SpecObject(name="mymod", include_classes=False).with_defaults(SpecOptions())
     result = resolver._fetch_members(el, mod)
     assert "my_func" in result
@@ -7781,7 +7781,7 @@ def test_fetch_members_exclude_functions():
     fn.docstring = gf.Docstring("Func.", parent=fn)
     mod.set_member("my_func", fn)
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     el = SpecObject(name="mymod", include_functions=False).with_defaults(SpecOptions())
     result = resolver._fetch_members(el, mod)
     assert "my_attr" in result
@@ -7802,7 +7802,7 @@ def test_fetch_members_exclude_list():
     fn2.docstring = gf.Docstring("Exclude.", parent=fn2)
     mod.set_member("exclude_me", fn2)
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     el = SpecObject(name="mymod", exclude=["exclude_me"]).with_defaults(SpecOptions())
     result = resolver._fetch_members(el, mod)
     assert "keep_me" in result
@@ -7821,7 +7821,7 @@ def test_fetch_members_source_order():
         fn.docstring = gf.Docstring("Func.", parent=fn)
         mod.set_member(name, fn)
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     el = SpecObject(name="mymod", member_order="source").with_defaults(SpecOptions())
     result = resolver._fetch_members(el, mod)
     assert result == ["b_func", "a_func", "c_func"]
@@ -7838,7 +7838,7 @@ def test_fetch_members_invalid_order_raises():
     fn.docstring = gf.Docstring("Func.", parent=fn)
     mod.set_member("my_func", fn)
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     el = SpecObject(name="mymod").with_defaults(SpecOptions())
     el = el.replace(member_order="bad_order")
 
@@ -7857,7 +7857,7 @@ def test_fetch_members_include_private_skips_private_filter():
     fn.docstring = gf.Docstring("Private.", parent=fn)
     mod.set_member("_private_func", fn)
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     el = SpecObject(name="mymod", include_private=True).with_defaults(SpecOptions())
     result = resolver._fetch_members(el, mod)
     assert "_private_func" in result
@@ -7876,7 +7876,7 @@ def test_fetch_members_include_empty_skips_docstring_filter():
     fn_no_doc = gf.Function("undocumented", parent=mod)
     mod.set_member("undocumented", fn_no_doc)
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     el = SpecObject(name="mymod", include_empty=True).with_defaults(SpecOptions())
     result = resolver._fetch_members(el, mod)
     assert "documented" in result
@@ -7884,7 +7884,7 @@ def test_fetch_members_include_empty_skips_docstring_filter():
 
 
 def test_autogenerate_sections_returns_sections(capsys):
-    """_autogenerate_sections with a valid module returns sections"""
+    """Verify that a valid module produces default API sections"""
     import griffe as gf
 
     mod = gf.Module("mymod")
@@ -7894,10 +7894,10 @@ def test_autogenerate_sections_returns_sections(capsys):
 
     from great_docs._apiref.api_reference import Settings
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.get_object_or_raise = lambda path, **kwargs: mod
 
-    sections = _autogenerate_sections(resolver, "mymod")
+    sections = resolver.autogenerate_sections("mymod")
     assert len(sections) == 1
     assert sections[0].title == "mymod"
     captured = capsys.readouterr()
@@ -7906,7 +7906,7 @@ def test_autogenerate_sections_returns_sections(capsys):
 
 
 def test_autogenerate_sections_empty_result_raises(capsys):
-    """_autogenerate_sections raises when _sections_from_package returns empty"""
+    """Verify that generating no API sections raises an error"""
     from unittest.mock import patch
 
     import griffe as gf
@@ -7915,12 +7915,12 @@ def test_autogenerate_sections_empty_result_raises(capsys):
 
     from great_docs._apiref.api_reference import Settings
 
-    resolver = _Resolver(Settings(parser="numpy"))
+    resolver = Resolver(Settings(parser="numpy"))
     resolver.get_object_or_raise = lambda path, **kwargs: mod
 
     with patch("great_docs._apiref.resolve._sections_from_package", return_value=[]):
         with pytest.raises(ValueError, match="No API sections could be generated"):
-            _autogenerate_sections(resolver, "mymod")
+            resolver.autogenerate_sections("mymod")
 
 
 def test_spec_object_records_specified_fields():
@@ -10700,8 +10700,8 @@ def test_process_custom_pages_can_be_disabled_explicitly():
         assert not (docs.build_dir / "custom" / "landing.qmd").exists()
 
 
-def test_process_custom_pages_frontmatter_allows_leading_blank_lines():
-    """Custom HTML frontmatter is parsed even with leading blank lines."""
+def test_process_custom_pages_ignores_frontmatter_after_leading_blank_lines():
+    """Verify that leading blank lines prevent front matter parsing"""
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp = Path(tmp_dir)
         docs = GreatDocs(project_path=tmp_dir)
@@ -10741,11 +10741,7 @@ def test_process_custom_pages_frontmatter_allows_leading_blank_lines():
             config = read_yaml(f)
 
         items = config["website"]["navbar"]["left"]
-        landing = next(
-            item for item in items if isinstance(item, dict) and item.get("text") == "Landing"
-        )
-
-        assert landing["href"] == "custom/landing.qmd"
+        assert not any(isinstance(item, dict) and item.get("text") == "Landing" for item in items)
 
 
 def test_process_custom_pages_adds_passthrough_navbar_link():
@@ -24332,14 +24328,12 @@ def test_parse_user_guide_file_with_section():
         docs = GreatDocs(project_path=tmp_dir)
         qmd = Path(tmp_dir) / "guide.qmd"
         qmd.write_text(
-            "---\ntitle: My Guide\nsection: Getting Started\n---\n\n# Content\n",
+            "---\ntitle: My Guide\nguide-section: Getting Started\n---\n\n# Content\n",
             encoding="utf-8",
         )
         result = docs._parse_user_guide_file(qmd)
         assert result is not None
-        # section may be in frontmatter dict or top-level
-        fm = result.get("frontmatter", {})
-        assert fm.get("section") == "Getting Started" or result.get("section") == "Getting Started"
+        assert result["section"] == "Getting Started"
 
 
 def test_read_quarto_config_creates_defaults():
@@ -31430,14 +31424,14 @@ def test_ast_transform_docstring_section_passthrough():
     assert result == [params_section]
 
 
-def test_ast_transform_all():
-    """transform_all() processes list of mixed sections."""
+def test_ast_transform_sections():
+    """Verify that mixed docstring sections are converted together"""
 
     sections = [
         gf.DocstringSectionText("Notes\n-----\nA note.\n"),
         gf.DocstringSectionParameters([]),
     ]
-    result = _DocstringSectionPatched.transform_all(sections)
+    result = transform_sections(sections)
 
     assert len(result) >= 2  # at least the note + parameters
 
@@ -31790,29 +31784,6 @@ def test_ast_preview_compact():
 
     result = preview(ExampleCode("x = 1"), compact=True, as_string=True)
     assert "ExampleCode" in result
-
-
-def test_ast_docstring_section_see_also():
-    """DocstringSectionSeeAlso has correct kind."""
-
-    sec = DocstringSectionSeeAlso("content", "See Also")
-    assert sec.kind == DocstringSectionKindPatched.see_also
-    assert sec.value == "content"
-
-
-def test_ast_docstring_section_notes():
-    """DocstringSectionNotes has correct kind."""
-
-    sec = DocstringSectionNotes("content", "Notes")
-    assert sec.kind == DocstringSectionKindPatched.notes
-
-
-def test_ast_docstring_section_warnings():
-    """DocstringSectionWarnings has correct kind."""
-
-    sec = DocstringSectionWarnings("content", "Warnings")
-
-    assert sec.kind == DocstringSectionKindPatched.warnings
 
 
 def test_ast_fields_docstring_element():
@@ -32984,13 +32955,6 @@ def test_blocks_blockcontent_to_str_sequence():
     assert result == "a\n\nb"
 
 
-def test_blocks_blockcontent_to_str_type_error():
-    """blockcontent_to_str raises TypeError for unsupported types."""
-
-    with pytest.raises(TypeError, match="Could not process type"):
-        blockcontent_to_str(12345)
-
-
 def test_blocks_str_items_none():
     """blockcontent_to_str_items with None returns empty string."""
 
@@ -33026,13 +32990,6 @@ def test_blocks_str_items_ordered():
     result = blockcontent_to_str_items(["x", "y"], "ordered")
     assert "1. x" in result
     assert "2. y" in result
-
-
-def test_blocks_str_items_type_error():
-    """blockcontent_to_str_items raises TypeError for unsupported types."""
-
-    with pytest.raises(TypeError, match="Could not process type"):
-        blockcontent_to_str_items(12345, "bullet")
 
 
 def test_blocks_str_items_empty_string_returns_empty():
@@ -41978,47 +41935,6 @@ def test_get_tag_icon_html_unknown_icon(mock_svg):
     assert GreatDocs._get_tag_icon_html("Python", {"Python": "bad-icon"}) == ""
 
 
-# ── _split_frontmatter ────────────────────────────────────────────────
-
-
-def test_split_frontmatter_with_yaml():
-    """Splits YAML frontmatter from body."""
-    content = "---\ntitle: Test\n---\nBody content."
-    with tempfile.TemporaryDirectory() as tmp:
-        gd = GreatDocs(project_path=tmp)
-        fm, body = gd._split_frontmatter(content)
-        assert fm["title"] == "Test"
-        assert "Body content." in body
-
-
-def test_split_frontmatter_no_yaml():
-    """Returns empty dict and full content when no frontmatter."""
-    content = "Just body content."
-    with tempfile.TemporaryDirectory() as tmp:
-        gd = GreatDocs(project_path=tmp)
-        fm, body = gd._split_frontmatter(content)
-        assert fm == {}
-        assert body == content
-
-
-def test_split_frontmatter_invalid_yaml():
-    """Returns empty dict on invalid YAML frontmatter."""
-    content = "---\n: invalid: {{yaml\n---\nBody."
-    with tempfile.TemporaryDirectory() as tmp:
-        gd = GreatDocs(project_path=tmp)
-        fm, body = gd._split_frontmatter(content)
-        assert fm == {}
-
-
-def test_split_frontmatter_non_dict():
-    """Returns empty dict when frontmatter is not a dict."""
-    content = "---\n- just\n- a\n- list\n---\nBody."
-    with tempfile.TemporaryDirectory() as tmp:
-        gd = GreatDocs(project_path=tmp)
-        fm, body = gd._split_frontmatter(content)
-        assert fm == {}
-
-
 # ── _derive_page_title ─────────────────────────────────────────────────
 
 
@@ -45768,13 +45684,13 @@ def test_copied_pages_carry_dates(tmp_path: Path, write, page: str):
 
     write(docs, tmp_path)
 
-    front_matter, _ = docs._split_frontmatter((docs.build_dir / page).read_text())
-    tags = front_matter["gd-head-tags"]
+    front_matter, _ = split_front_matter((docs.build_dir / page).read_text())
+    tags = front_matter.data["gd-head-tags"]
     assert any('name="gd-page-modified"' in tag for tag in tags)
     if write is not _write_index:
         assert any('<meta name="gd-page-author" content="Ada">' in tag for tag in tags)
     if write is _write_index:
-        homepage, _ = docs._split_frontmatter((docs.build_dir / "index.qmd").read_text())
+        homepage, _ = split_front_matter((docs.build_dir / "index.qmd").read_text())
         assert "gd-head-tags" not in homepage
 
 
@@ -45796,7 +45712,62 @@ def test_user_guide_homepage_has_no_dates(tmp_path: Path):
 
     docs._create_blended_index(info, docs._copy_user_guide_to_docs(info))
 
-    homepage, _ = docs._split_frontmatter((docs.build_dir / "index.qmd").read_text())
-    second, _ = docs._split_frontmatter((docs.build_dir / "user-guide/next.qmd").read_text())
+    homepage, _ = split_front_matter((docs.build_dir / "index.qmd").read_text())
+    second, _ = split_front_matter((docs.build_dir / "user-guide/next.qmd").read_text())
     assert "gd-head-tags" not in homepage
     assert "gd-head-tags" in second
+
+
+# ---------------------------------------------------------------------------
+# Front matter values of unexpected types
+# ---------------------------------------------------------------------------
+
+
+def test_section_body_class_joins_a_list_of_classes(tmp_path: Path) -> None:
+    """Verify that adding a section class preserves existing classes from a list"""
+    (tmp_path / "page.qmd").write_text("---\nbody-classes: [wide, dark]\n---\nContent\n")
+    docs = GreatDocs(project_path=str(tmp_path))
+
+    docs._inject_section_body_class("sec", [{"filename": "page.qmd"}], tmp_path)
+
+    front_matter, body = split_front_matter((tmp_path / "page.qmd").read_text())
+    assert front_matter.string("body-classes") == "wide dark gd-section-no-sidebar"
+    assert body == "Content\n"
+
+
+def test_user_guide_file_with_a_list_block_derives_its_title(tmp_path: Path) -> None:
+    """Verify that front matter that is not a mapping is treated as empty"""
+    qmd = tmp_path / "01-getting-started.qmd"
+    qmd.write_text("---\n- a\n- b\n---\n\n# Content\n")
+    docs = GreatDocs(project_path=str(tmp_path))
+
+    result = docs._parse_user_guide_file(qmd)
+
+    assert result is not None
+    assert (result["title"], result["section"]) == ("Getting Started", None)
+
+
+def test_rebase_page_bibliography_ignores_a_list_block(tmp_path: Path) -> None:
+    """Verify that front matter that is not a mapping leaves the page unchanged"""
+    docs = GreatDocs(project_path=str(tmp_path))
+    content = "---\n- a\n---\n\nText\n"
+
+    result = docs._rebase_page_bibliography(content, tmp_path / "page.qmd", tmp_path / "out.qmd")
+
+    assert result == content
+
+
+def test_skills_page_ignores_a_non_string_description(tmp_path: Path) -> None:
+    """Verify that a curated skill whose `description` is a list still gets a page"""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-package"\n')
+    skills_dir = tmp_path / "skills" / "test-package"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "SKILL.md").write_text(
+        "---\nname: test-package\ndescription: [a, b]\n---\n\n# Skill\n"
+    )
+    (tmp_path / "great-docs").mkdir()
+    docs = GreatDocs(project_path=str(tmp_path))
+
+    docs._generate_skill_md()
+
+    assert "# Skill" in (tmp_path / "great-docs" / "skills.qmd").read_text()

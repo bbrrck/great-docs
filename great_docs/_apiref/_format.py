@@ -156,7 +156,7 @@ def format_name(doc: content.Doc, format: DisplayNameFormat = "relative") -> str
     format:
         The format to use for the object's name.
     """
-    obj = cast("gf.Alias | gf.Object", doc.obj)
+    obj = doc.obj
     if format == "doc":
         res = doc.name
     elif format in ("name", "short"):

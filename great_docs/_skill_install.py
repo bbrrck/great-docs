@@ -5,6 +5,8 @@ import shutil
 from pathlib import Path
 from typing import Literal
 
+from ._yaml import split_front_matter
+
 # ---------------------------------------------------------------------------
 # Agent format definitions
 # ---------------------------------------------------------------------------
@@ -58,32 +60,6 @@ _AGENT_FORMATS: dict[AgentFormat, dict] = {
         "description": "Codex",
     },
 }
-
-
-def _parse_frontmatter(content: str) -> tuple[dict, str]:
-    """Parse YAML frontmatter from SKILL.md content.
-
-    Returns (frontmatter_dict, body_text).
-    """
-    from yaml12 import parse_yaml
-
-    normalized = content.lstrip()
-    if not normalized.startswith("---"):
-        return {}, content
-
-    parts = normalized.split("---", 2)
-    if len(parts) < 3:
-        return {}, content
-
-    try:
-        fm = parse_yaml(parts[1]) or {}
-    except Exception:
-        return {}, content
-
-    if not isinstance(fm, dict):
-        return {}, content
-
-    return fm, parts[2].lstrip("\n")
 
 
 # ---------------------------------------------------------------------------
@@ -173,8 +149,8 @@ def _find_skill_from_url(url: str) -> list[tuple[str, str]] | None:
         skill_url = f"{base}/skill.md"
         with urllib.request.urlopen(skill_url, timeout=10) as resp:  # noqa: S310
             content = resp.read().decode("utf-8")
-        fm, _ = _parse_frontmatter(content)
-        name = fm.get("name", "default")
+        fm, _ = split_front_matter(content)
+        name = fm.string("name") or "default"
         return [(name, content)]
     except (urllib.error.URLError, OSError):
         pass
@@ -312,8 +288,8 @@ def install_skill(
     # Each entry: (name, content, extra_files)
 
     if skill_content:
-        fm, _ = _parse_frontmatter(skill_content)
-        name = skill_name or fm.get("name", "default")
+        fm, _ = split_front_matter(skill_content)
+        name = skill_name or fm.string("name") or "default"
         skills_to_install.append((name, skill_content, extra_files or {}))
 
     elif url:
@@ -334,8 +310,8 @@ def install_skill(
             return []
         for sf in skill_files:
             content = sf.read_text(encoding="utf-8")
-            fm, _ = _parse_frontmatter(content)
-            name = fm.get("name", sf.parent.name)
+            fm, _ = split_front_matter(content)
+            name = fm.string("name") or sf.parent.name
             # Gather extra files from the skill directory
             extras: dict[str, str] = {}
             skill_dir = sf.parent
@@ -470,9 +446,9 @@ def check_skill(
             # Find all SKILL.md files under agent skill directories
             for skill_md in scan_root.glob(f"{glob_pattern}/SKILL.md"):
                 content = skill_md.read_text(encoding="utf-8")
-                fm, _ = _parse_frontmatter(content)
-                skill_name = fm.get("name", skill_md.parent.name)
-                metadata = fm.get("metadata", {})
+                fm, _ = split_front_matter(content)
+                skill_name = fm.string("name") or skill_md.parent.name
+                metadata = fm.mapping("metadata")
                 installed_pkg_version = str(metadata.get("package_version", ""))
                 installed_hash = str(metadata.get("content_hash", ""))
 
@@ -523,8 +499,8 @@ def check_skill(
             skill_files = _find_package_skills(pkg_name)
             for sf in skill_files:
                 sf_content = sf.read_text(encoding="utf-8")
-                sf_fm, _ = _parse_frontmatter(sf_content)
-                if sf_fm.get("name", sf.parent.name) == entry["name"]:
+                sf_fm, _ = split_front_matter(sf_content)
+                if (sf_fm.string("name") or sf.parent.name) == entry["name"]:
                     target_dir = entry["path"].parent
                     # Re-stamp with current package version + content hash
                     stamped_content = sf_content
@@ -576,12 +552,12 @@ def list_skills(
         skill_files = _find_package_skills(package)
         for sf in skill_files:
             content = sf.read_text(encoding="utf-8")
-            fm, _ = _parse_frontmatter(content)
-            metadata = fm.get("metadata", {})
+            fm, _ = split_front_matter(content)
+            metadata = fm.mapping("metadata")
             results.append(
                 {
-                    "name": fm.get("name", sf.parent.name),
-                    "description": fm.get("description", ""),
+                    "name": fm.string("name") or sf.parent.name,
+                    "description": fm.string("description") or "",
                     "path": sf,
                     "version": str(metadata.get("version", "unknown")),
                     "source": "package",
@@ -659,18 +635,21 @@ def _stamp_install_metadata(content: str, pkg_version: str) -> str:
     These allow `skill check` to determine whether the installed skill content is still current
     without false positives from version bumps that didn't change the skill text.
     """
-    fm, body = _parse_frontmatter(content)
+    fm, body = split_front_matter(content)
     if not fm:
         return content
 
-    metadata = fm.setdefault("metadata", {})
-    metadata["package_version"] = pkg_version
-    metadata["content_hash"] = _content_hash(content)
+    metadata = {
+        **fm.mapping("metadata").data,
+        "package_version": pkg_version,
+        "content_hash": _content_hash(content),
+    }
 
     # Re-serialize frontmatter
     from yaml12 import format_yaml
 
-    fm_text = format_yaml(fm)
+    fm_text = format_yaml({**fm.data, "metadata": metadata})
+    body = body.lstrip("\n")
     return f"---\n{fm_text.rstrip()}\n---\n\n{body}"
 
 
@@ -690,8 +669,8 @@ def _check_content_freshness(
     skill_files = _find_package_skills(pkg_name)
     for sf in skill_files:
         sf_content = sf.read_text(encoding="utf-8")
-        sf_fm, _ = _parse_frontmatter(sf_content)
-        if sf_fm.get("name", sf.parent.name) == skill_name:
+        sf_fm, _ = split_front_matter(sf_content)
+        if (sf_fm.string("name") or sf.parent.name) == skill_name:
             current_hash = _content_hash(sf_content)
             if current_hash == installed_hash:
                 return "current"

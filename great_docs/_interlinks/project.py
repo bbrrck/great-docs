@@ -119,7 +119,7 @@ def write_index(index: Index, path: Path) -> None:
     lines.append("  names = {")
 
     for name in sorted(index.names):
-        parts = []
+        parts: list[str] = []
         for e in index.names[name]:
             fields = [
                 f"uri = {_quote_lua(e.uri)}",
@@ -137,7 +137,7 @@ def write_index(index: Index, path: Path) -> None:
     lines.append("}")
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    _ = path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     # Remove an earlier compiled index because the filter loads it before this
     # source chunk.
     path.with_suffix(".luac").unlink(missing_ok=True)

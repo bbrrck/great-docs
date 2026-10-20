@@ -205,6 +205,29 @@ check lists those pages, so that you can give each one a description of its own.
 The check covers the homepage source, the user guide, sections and custom pages. It skips
 generated pages such as the API reference, and runs only when SEO is enabled.
 
+### Front Matter Values
+
+Great Docs defines front matter keys such as `status`, `tags` and `last_update`.
+This check flags values whose types the build does not accept. The build ignores these values;
+for example, a page with `status: [draft]` gets no status badge.
+
+| Finding | Severity | Description |
+|---------|----------|-------------|
+| `front-matter` | Warning | A Great Docs key has a value the build ignores |
+
+Each warning names the key and its accepted value types:
+
+| Key | Accepted value |
+|-----|----------------|
+| `status`, `tag-location`, `guide-section`, `date_created` | A string |
+| `tags` | A list |
+| `last_update` | A mapping with optional `date` and `author` strings |
+| `scale-to-fit` | A string or a list |
+| `scale-to-fit-min-scale` | A string or a number |
+
+Quarto validates its own keys, such as `title` and `format`, when it renders the page.
+This check covers the same pages as the search description check.
+
 ## Running Specific Checks
 
 When diagnosing a particular class of issue, you can run a subset of checks instead of the full
@@ -231,6 +254,7 @@ Available check names:
 | `style` | Docstring style consistency with configured parser |
 | `directives` | Unknown or malformed `%` directives |
 | `descriptions` | Pages that fall back to the default search description |
+| `front-matter` | Great Docs front matter keys set to a value of the wrong type |
 
 When no `--check` flags are given, every category runs.
 
