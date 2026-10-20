@@ -1607,6 +1607,26 @@ def test_freeze_recovery_merges_historical_first_latest_last(project: Path) -> N
     assert snapshot(project) == before
 
 
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        "[project]\nname = 1\n",
+        'project = "sample"\n',
+        'tool = "setuptools"\n',
+        '[tool]\nsetuptools = "packages"\n',
+        "[tool.setuptools.packages]\nfind = 1\n",
+        "[tool.setuptools]\npackage-dir = 1\n",
+    ],
+)
+def test_package_metadata_skips_malformed_pyproject_values(project: Path, manifest: str) -> None:
+    put(project, "pyproject.toml", manifest)
+    put(project, "skills/sample/SKILL.md", "# Sample\n")
+    migration = analyse(Layout.make(project), Path("docs"))
+    assert not migration.blockers
+    # The package name falls back to the only package directory.
+    assert project / "skills/sample/SKILL.md" in dict(migration.fingerprints)
+
+
 def test_implicit_logos_become_explicit_without_losing_settings(project: Path) -> None:
     put(project, "great-docs.yml", "logo: {alt: 'Sample'} # Keep\nhero:\n  tagline: Simple\n")
     put(project, "assets/logo.svg", "<svg/>")

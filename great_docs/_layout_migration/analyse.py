@@ -14,8 +14,10 @@ from typing import Any
 from great_docs._content_naming import section_slug
 from great_docs._layout import CONVENTIONAL_DOC_DIRS, Layout
 from great_docs._utils import is_great_docs_build_dir, recognised_build_dirs
+from great_docs._yaml import YamlMapping, YamlValue
 
 from .content import (
+    ConfigMapping,
     ConfigPath,
     ContentDirectory,
     config_paths,
@@ -105,8 +107,8 @@ def _check_freeze_ignore_policy(
     root: Path,
     destination: Path,
     paths: set[Path],
-    retain: Callable[[Path], bool],
-    retain_policy: Callable[[Path], bool],
+    retain: Callable[[Path], None],
+    retain_policy: Callable[[Path], None],
 ) -> tuple[Path, ...]:
     """
     Refuse cache relocation when effective ignore rules would change
@@ -291,24 +293,27 @@ def _package_metadata(root: Path) -> tuple[str, list[Path]]:
     sources: list[Path] = [root / "src"]
     manifest = root / "pyproject.toml"
     if manifest.is_file():
-        data = tomllib.loads(manifest.read_bytes().decode("utf-8"))
-        name = data.get("project", {}).get("name", "")
-        setuptools = data.get("tool", {}).get("setuptools", {})
-        for directory in setuptools.get("package-dir", {}).values():
+        data = YamlMapping(tomllib.loads(manifest.read_bytes().decode("utf-8")))
+        name = data.mapping("project").string("name") or ""
+        tool = data.mapping("tool")
+        setuptools = tool.mapping("setuptools")
+        for directory in setuptools.mapping("package-dir").data.values():
             if isinstance(directory, str) and directory not in {"", "."}:
                 sources.append(absolute_path(root / directory))
-        packages = setuptools.get("packages", {})
+        packages = setuptools.get("packages")
         if isinstance(packages, dict):
-            for directory in packages.get("find", {}).get("where", []):
+            for directory in YamlMapping(packages).mapping("find").sequence("where"):
                 if isinstance(directory, str) and directory not in {"", "."}:
                     sources.append(absolute_path(root / directory))
         elif isinstance(packages, list):
             sources.extend(
                 root / package.split(".")[0] for package in packages if isinstance(package, str)
             )
-        for package in data.get("tool", {}).get("poetry", {}).get("packages", []):
-            if isinstance(package, dict) and isinstance(package.get("include"), str):
-                sources.append(root / package.get("from", "") / package["include"])
+        for package in tool.mapping("poetry").sequence("packages"):
+            entry = YamlMapping(package) if isinstance(package, dict) else YamlMapping()
+            include = entry.string("include")
+            if include is not None:
+                sources.append(root / (entry.string("from") or "") / include)
     if not name and (root / "setup.cfg").is_file():
         config = configparser.ConfigParser()
         config.read_string((root / "setup.cfg").read_bytes().decode("utf-8"))
@@ -366,18 +371,39 @@ def _logo_candidates(package: str, *, hero: bool) -> list[str]:
     return candidates
 
 
-def _dedicated_directories(config: dict[str, Any], root: Path) -> list[tuple[Path, ConfigPath]]:
+def _relative_section_dirs(sections: list[YamlValue]) -> list[tuple[int, str, YamlMapping]]:
+    """
+    Find the narrative sections whose directory is relative to the project
+
+    Parameters
+    ----------
+    sections
+        The configured `sections` entries.
+
+    Returns
+    -------
+    :
+        The position, directory, and options of each mapping entry whose
+        `dir` is a relative path.
+    """
+    found: list[tuple[int, str, YamlMapping]] = []
+    for index, section in enumerate(sections):
+        if not isinstance(section, dict):
+            continue
+        options = YamlMapping(section)
+        directory = options.string("dir")
+        if directory is not None and not Path(directory).is_absolute():
+            found.append((index, directory, options))
+    return found
+
+
+def _dedicated_directories(config: ConfigMapping, root: Path) -> list[tuple[Path, ConfigPath]]:
     selected: list[tuple[Path, ConfigPath]] = []
     sections = config.get("sections") or []
     if not isinstance(sections, list):
         raise MigrationError("Narrative sections must be a list of directory mappings")
-    section_dirs = {
-        root / section["dir"]
-        for section in sections
-        if isinstance(section, dict)
-        and isinstance(section.get("dir"), str)
-        and not Path(section["dir"]).is_absolute()
-    }
+    relative_sections = _relative_section_dirs(sections)
+    section_dirs = {root / directory for _, directory, _ in relative_sections}
     guide = config.get("user_guide")
     if isinstance(guide, str) and not Path(guide).is_absolute():
         selected.append((root / guide, ("user_guide",)))
@@ -388,13 +414,8 @@ def _dedicated_directories(config: dict[str, Any], root: Path) -> list[tuple[Pat
             if (root / name).exists() or (root / name).is_symlink():
                 selected.append((root / name, ("user_guide",)))
                 break
-    for index, section in enumerate(sections):
-        if (
-            isinstance(section, dict)
-            and isinstance(section.get("dir"), str)
-            and not Path(section["dir"]).is_absolute()
-        ):
-            selected.append((root / section["dir"], ("sections", index, "dir")))
+    for index, directory, _ in relative_sections:
+        selected.append((root / directory, ("sections", index, "dir")))
     custom = config.get("custom_pages")
     if custom is None:
         if (root / "custom").exists() or (root / "custom").is_symlink():
@@ -417,7 +438,7 @@ def _dedicated_directories(config: dict[str, Any], root: Path) -> list[tuple[Pat
     return [(absolute_path(path), field) for path, field in selected]
 
 
-def _content_directories(config: dict[str, Any], root: Path) -> tuple[ContentDirectory, ...]:
+def _content_directories(config: ConfigMapping, root: Path) -> tuple[ContentDirectory, ...]:
     """
     Map each recognised content root to its build-time rename and prefix rule
 
@@ -425,14 +446,9 @@ def _content_directories(config: dict[str, Any], root: Path) -> tuple[ContentDir
     `sections` config fields; keep the two in sync when either changes.
     """
     directories: list[ContentDirectory] = []
-    sections = config.get("sections") or []
-    section_dirs = {
-        root / section["dir"]
-        for section in sections
-        if isinstance(section, dict)
-        and isinstance(section.get("dir"), str)
-        and not Path(section["dir"]).is_absolute()
-    }
+    sections = config.get("sections")
+    relative_sections = _relative_section_dirs(sections if isinstance(sections, list) else [])
+    section_dirs = {root / directory for _, directory, _ in relative_sections}
     guide = config.get("user_guide")
     strip = not isinstance(guide, list)
     if isinstance(guide, str) and not Path(guide).is_absolute():
@@ -444,19 +460,12 @@ def _content_directories(config: dict[str, Any], root: Path) -> tuple[ContentDir
             if (root / name).exists() or (root / name).is_symlink():
                 directories.append(ContentDirectory(root / name, "user-guide", strip))
                 break
-    for section in sections:
-        if (
-            isinstance(section, dict)
-            and isinstance(section.get("dir"), str)
-            and not Path(section["dir"]).is_absolute()
-        ):
-            directories.append(
-                ContentDirectory(
-                    root / section["dir"],
-                    section_slug(section["dir"]),
-                    section.get("type") != "blog",
-                )
+    for _, directory, options in relative_sections:
+        directories.append(
+            ContentDirectory(
+                root / directory, section_slug(directory), options.get("type") != "blog"
             )
+        )
     return tuple(directories)
 
 
@@ -577,7 +586,7 @@ def _fold_in_static_directories(
     content_directories: tuple[ContentDirectory, ...],
     config_referenced: set[Path],
     never_fold_in: set[Path],
-    retain: Callable[[Path], bool],
+    retained: Callable[[Path], bool],
     generated: list[Path],
     blockers: list[Note],
 ) -> list[Note]:
@@ -640,7 +649,7 @@ def _fold_in_static_directories(
             move = Move(candidate, destination / candidate.relative_to(root))
             moves.append(move)
             folded.add(candidate)
-            if retain(candidate):
+            if retained(candidate):
                 _categorize_move_contents(move.source, config_path, documents, blockers, follow_up)
     return follow_up
 
@@ -686,11 +695,11 @@ def analyse(layout: Layout, destination: Path) -> Migration:
             tuple(dict.fromkeys(follow_up)),
         )
 
-    def retain(path: Path) -> bool:
+    def retained(path: Path) -> bool:
         try:
             check_symlinks(path)
             if path.is_dir():
-                tree_files(path)
+                _ = tree_files(path)
             fingerprints[path] = fingerprint(path)
             return True
         except (OSError, MigrationError) as error:
@@ -703,9 +712,13 @@ def analyse(layout: Layout, destination: Path) -> Migration:
             )
             return False
 
-    def retain_policy(path: Path) -> bool:
+    def retain(path: Path) -> None:
+        _ = retained(path)
+
+    def retain_policy(path: Path) -> None:
         if path.is_relative_to(root):
-            return retain(path)
+            retain(path)
+            return
         seen: set[Path] = set()
         try:
             while True:
@@ -713,7 +726,8 @@ def analyse(layout: Layout, destination: Path) -> Migration:
                     (part for part in reversed((path, *path.parents)) if part.is_symlink()), None
                 )
                 if link is None:
-                    return retain(path)
+                    retain(path)
+                    return
                 if link in seen:
                     raise MigrationError(f"Ignore policy contains a symlink cycle: {link}")
                 seen.add(link)
@@ -728,7 +742,6 @@ def analyse(layout: Layout, destination: Path) -> Migration:
                     path=path,
                 )
             )
-            return False
 
     if layout.source_dir != root:
         if destination == layout.source_dir:
@@ -771,13 +784,13 @@ def analyse(layout: Layout, destination: Path) -> Migration:
                 )
     except MigrationError as error:
         blockers.append(Note(str(error), category="Destination Paths to Resolve", path=destination))
-    if not retain(config_path):
+    if not retained(config_path):
         return result()
     try:
         before = config_path.read_bytes()
         text = before.decode("utf-8")
         config = read_config(text)
-        rewrite_config(text, (), root, root)
+        _ = rewrite_config(text, (), root, root)
     except DuplicateYAMLKey as error:
         blockers.append(
             Note(
@@ -1030,7 +1043,7 @@ def analyse(layout: Layout, destination: Path) -> Migration:
             continue
         for candidate in _logo_candidates(package, hero=hero):
             candidate_path = root / candidate
-            if not retain(candidate_path):
+            if not retained(candidate_path):
                 break
             if candidate_path.is_file():
                 light = Path(candidate)
@@ -1082,7 +1095,7 @@ def analyse(layout: Layout, destination: Path) -> Migration:
             else:
                 config_referenced.add(source)
             check_symlinks(root / value)
-            readable = retain(source)
+            readable = retained(source)
             if (
                 readable
                 and source.is_dir()
@@ -1133,7 +1146,7 @@ def analyse(layout: Layout, destination: Path) -> Migration:
             )
 
     for source in [move.source for move in moves] + list(in_place_sources):
-        if not retain(source):
+        if not retained(source):
             continue
         _categorize_move_contents(source, config_path, documents, blockers, follow_up)
     for name in ("README.md", "README.rst", "index.qmd", "index.md"):
@@ -1161,7 +1174,7 @@ def analyse(layout: Layout, destination: Path) -> Migration:
             content_directories,
             config_referenced,
             never_fold_in,
-            retain,
+            retained,
             generated,
             blockers,
         )
@@ -1302,7 +1315,7 @@ def analyse(layout: Layout, destination: Path) -> Migration:
 
     assets = root / "assets"
     referenced = set(fingerprints)
-    if assets.exists() and assets not in {move.source for move in moves} and retain(assets):
+    if assets.exists() and assets not in {move.source for move in moves} and retained(assets):
         for path in tree_files(assets):
             if path not in referenced:
                 blockers.append(
@@ -1340,7 +1353,7 @@ def analyse(layout: Layout, destination: Path) -> Migration:
         recovered: dict[Path, bytes] = {}
         for build in generated:
             cache = build / "_freeze"
-            if not retain(cache) or not cache.exists():
+            if not retained(cache) or not cache.exists():
                 continue
             try:
                 for path in tree_files(cache):
@@ -1410,7 +1423,7 @@ def analyse(layout: Layout, destination: Path) -> Migration:
             )
         )
     ignore = root / ".gitignore"
-    if retain(ignore):
+    if retained(ignore):
         try:
             original = ignore.read_bytes() if ignore.exists() else None
             ignore_text = (original or b"").decode("utf-8")
@@ -1450,7 +1463,7 @@ def analyse(layout: Layout, destination: Path) -> Migration:
 
     automation = [root / "Makefile", root / "justfile", root / "tox.ini", root / "noxfile.py"]
     for directory in (root / ".github/workflows", root / "scripts"):
-        if directory.exists() and retain(directory):
+        if directory.exists() and retained(directory):
             automation.extend(tree_files(directory))
     for path in sorted(root.iterdir()):
         if path.suffix in {".sh", ".bash", ".zsh", ".ps1"}:
@@ -1493,7 +1506,7 @@ def analyse(layout: Layout, destination: Path) -> Migration:
     auto_editable_automation = {root / "Makefile", root / "justfile"}
     workflows_dir = root / ".github" / "workflows"
     for path in dict.fromkeys(automation):
-        if not path.is_file() or not retain(path):
+        if not path.is_file() or not retained(path):
             continue
         try:
             before = path.read_bytes()
@@ -1527,21 +1540,16 @@ def analyse(layout: Layout, destination: Path) -> Migration:
     skill = root / "skills" / package / "SKILL.md"
     if package and skill.is_file():
         retain(skill)
-    sources = (
-        config.get("interlinks", {}).get("sources", {})
-        if isinstance(config.get("interlinks"), dict)
-        else {}
-    )
-    if isinstance(sources, dict):
-        for name, entry in sources.items():
-            value = entry.get("url") if isinstance(entry, dict) else None
-            if isinstance(value, str) and local_path(value, root) is not None:
-                follow_up.append(
-                    Note(
-                        f"Review inventory location and published URL together for interlinks.sources.{name}.url: {value}",
-                        category="Configuration Paths and URLs to Resolve",
-                    )
+    sources = YamlMapping(config).mapping("interlinks").mapping("sources")
+    for name, entry in sources.data.items():
+        value = entry.get("url") if isinstance(entry, dict) else None
+        if isinstance(value, str) and local_path(value, root) is not None:
+            follow_up.append(
+                Note(
+                    f"Review inventory location and published URL together for interlinks.sources.{name}.url: {value}",
+                    category="Configuration Paths and URLs to Resolve",
                 )
+            )
     site = config.get("site")
     if isinstance(site, dict):
         for name, value in site.items():

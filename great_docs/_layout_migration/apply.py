@@ -12,6 +12,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import cast
 
 from great_docs._layout import Layout
 
@@ -47,7 +48,7 @@ class _Operation:
 @dataclass
 class _Manifest:
     config: str
-    operations: list[_Operation] = field(default_factory=list)
+    operations: list[_Operation] = field(default_factory=list[_Operation])
     schema_version: int = 1
     status: str = "active"
 
@@ -71,7 +72,7 @@ def _target(root: Path, relative: str, *, journal: bool = False) -> Path:
     result = root / path
     check_symlinks(result)
     if not journal:
-        _relative(root, result)
+        _ = _relative(root, result)
     return result
 
 
@@ -79,7 +80,7 @@ def _verify(path: Path, expected: str, *, read_only_external: bool = False) -> N
     if not read_only_external:
         check_symlinks(path)
     if path.is_dir() and not path.is_symlink():
-        tree_files(path)
+        _ = tree_files(path)
     if fingerprint(path) != expected:
         raise MigrationError(f"Migration input changed; request a fresh preview: {path}")
 
@@ -98,7 +99,7 @@ def _validate(migration: Migration) -> None:
     if root != absolute_path(root) or not root.is_dir():
         raise MigrationError(f"Invalid package root: {root}")
     check_symlinks(root)
-    _relative(root, migration.config_path)
+    _ = _relative(root, migration.config_path)
     if migration.blockers:
         raise MigrationError("Migration is blocked: " + "; ".join(migration.blockers))
     reviewed = dict(migration.fingerprints)
@@ -109,8 +110,8 @@ def _validate(migration: Migration) -> None:
     sources = [move.source for move in migration.moves]
     destinations = [move.destination for move in migration.moves]
     for index, move in enumerate(migration.moves):
-        _relative(root, move.source)
-        _relative(root, move.destination)
+        _ = _relative(root, move.source)
+        _ = _relative(root, move.destination)
         if move.source not in reviewed or not move.source.exists():
             raise MigrationError(f"Move source has no reviewed inventory: {move.source}")
         if any(
@@ -124,7 +125,7 @@ def _validate(migration: Migration) -> None:
         _absent(move.destination)
     edited: set[Path] = set()
     for edit in migration.edits:
-        _relative(root, edit.path)
+        _ = _relative(root, edit.path)
         if edit.path in edited or any(
             edit.path.is_relative_to(target) or target.is_relative_to(edit.path)
             for target in destinations
@@ -144,7 +145,7 @@ def _validate(migration: Migration) -> None:
 def _write(path: Path, content: bytes, mode: int) -> None:
     check_symlinks(path)
     with path.open("xb") as stream:
-        stream.write(content)
+        _ = stream.write(content)
         stream.flush()
         if os.name == "nt":
             os.chmod(path, stat.S_IMODE(mode))
@@ -185,7 +186,7 @@ def _prepare(migration: Migration, journal: Path, manifest: _Manifest) -> None:
         mode = edit.path.stat().st_mode if edit.before is not None else stat.S_IFREG | 0o644
         backup = f"backups/{index}" if edit.before is not None else ""
         replacement = f"proposed/{index}"
-        if backup:
+        if edit.before is not None:
             _write(journal / backup, edit.before, mode)
         _write(journal / replacement, edit.after, mode)
         manifest.operations.append(
@@ -444,8 +445,8 @@ def apply(migration: Migration) -> None:
         _validate(migration)
         _perform(root, journal, manifest)
         config = _target(root, manifest.config)
-        read_config(config.read_text(encoding="utf-8"))
-        Layout.make(root, config)
+        _ = read_config(config.read_text(encoding="utf-8"))
+        _ = Layout.make(root, config)
         for operation in manifest.operations:
             if operation.kind == "move":
                 _absent(_target(root, operation.path))
@@ -476,34 +477,40 @@ def apply(migration: Migration) -> None:
 def _load(root: Path, journal: Path) -> _Manifest:
     check_symlinks(journal / "manifest.json")
     try:
-        data = json.loads((journal / "manifest.json").read_text(encoding="utf-8"))
-        if not isinstance(data, dict) or set(data) != {
-            "config",
-            "operations",
-            "schema_version",
-            "status",
-        }:
+        parsed: object = json.loads((journal / "manifest.json").read_text(encoding="utf-8"))
+        if not isinstance(parsed, dict):
             raise MigrationError("Invalid migration recovery manifest fields")
-        if data["schema_version"] != 1 or data["status"] not in {
-            "active",
-            "complete",
-            "rolled_back",
-        }:
+        data = cast("dict[str, object]", parsed)
+        if set(data) != {"config", "operations", "schema_version", "status"}:
+            raise MigrationError("Invalid migration recovery manifest fields")
+        config, records, status = data["config"], data["operations"], data["status"]
+        if data["schema_version"] != 1 or status not in {"active", "complete", "rolled_back"}:
             raise MigrationError("Unsupported migration recovery manifest schema or status")
-        _target(root, data["config"])
-        if not isinstance(data["operations"], list):
+        if not isinstance(config, str) or not isinstance(status, str):
+            raise MigrationError("Invalid migration recovery manifest values")
+        _ = _target(root, config)
+        if not isinstance(records, list):
             raise MigrationError("Invalid migration recovery operations")
-        operations = []
-        for item in data["operations"]:
-            if not isinstance(item, dict) or set(item) != set(_Operation.__dataclass_fields__):
+        operations: list[_Operation] = []
+        for record in cast("list[object]", records):
+            if not isinstance(record, dict):
                 raise MigrationError("Invalid migration recovery operation fields")
-            if any(not isinstance(value, str) for key, value in item.items() if key != "mode"):
+            item = cast("dict[str, object]", record)
+            if set(item) != set(_Operation.__dataclass_fields__):
+                raise MigrationError("Invalid migration recovery operation fields")
+            strings = {
+                key: value
+                for key, value in item.items()
+                if key != "mode" and isinstance(value, str)
+            }
+            if set(strings) != set(item) - {"mode"}:
                 raise MigrationError("Invalid migration recovery operation values")
-            operation = _Operation(**item)
+            mode = item["mode"]
+            if not isinstance(mode, int) or not 0 <= mode <= 0o177777:
+                raise MigrationError("Invalid migration recovery mode")
+            operation = _Operation(mode=mode, **strings)
             if operation.kind not in {"mkdir", "edit", "move"} or operation.state not in _STATES:
                 raise MigrationError("Invalid migration recovery operation kind or state")
-            if not isinstance(operation.mode, int) or not 0 <= operation.mode <= 0o177777:
-                raise MigrationError("Invalid migration recovery mode")
             for digest in (operation.before, operation.after):
                 if digest and (
                     len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest)
@@ -511,7 +518,7 @@ def _load(root: Path, journal: Path) -> _Manifest:
                     raise MigrationError("Invalid migration recovery digest")
             for relative in (operation.path, operation.destination, operation.stage):
                 if relative:
-                    _target(root, relative)
+                    _ = _target(root, relative)
             for relative, directory in (
                 (operation.backup, "backups"),
                 (operation.replacement, "proposed"),
@@ -521,7 +528,7 @@ def _load(root: Path, journal: Path) -> _Manifest:
                     if path.parent != journal / directory or not path.name.isdecimal():
                         raise MigrationError(f"Unsafe recorded backup path: {relative!r}")
             operations.append(operation)
-        return _Manifest(data["config"], operations, data["schema_version"], data["status"])
+        return _Manifest(config, operations, 1, status)
     except (OSError, ValueError, TypeError) as error:
         raise MigrationError(f"Cannot inspect migration recovery manifest: {error}") from error
 
