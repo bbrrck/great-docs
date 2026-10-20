@@ -91,7 +91,15 @@
             : _gdT('wide_layout_widen', 'Widen content');
         btn.setAttribute('aria-pressed', wide ? 'true' : 'false');
         btn.setAttribute('aria-label', label);
-        btn.setAttribute('title', label);
+
+        // Use data-tippy-content rather than title: tooltips.js only converts
+        // a title once, so a title set on a later toggle would surface as a
+        // native browser tooltip while Tippy kept showing the old label
+        btn.setAttribute('data-tippy-content', label);
+        btn.removeAttribute('title');
+        if (btn._tippy) {
+            btn._tippy.setContent(label);
+        }
     }
 
     /**
