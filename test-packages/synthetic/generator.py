@@ -59,8 +59,10 @@ def generate_package(
     for rel_path, content in files.items():
         file_path = pkg_dir / rel_path
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        # Dedent the content to allow indented multi-line strings in specs
-        file_path.write_text(textwrap.dedent(content), encoding="utf-8")
+        # Dedent the content to allow indented multi-line strings in specs, and drop
+        # the newline after an opening `"""` so that front matter starts the file
+        text = textwrap.dedent(content).removeprefix("\n")
+        file_path.write_text(text, encoding="utf-8")
 
     # --- Binary files ----------------------------------------------------
     binary_files: dict[str, bytes] = spec.get("binary_files", {})

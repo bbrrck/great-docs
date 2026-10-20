@@ -136,3 +136,19 @@ def test_prefixes_are_declared_from_the_translations(
             )
         },
     ]
+
+
+@pytest.mark.parametrize(
+    ("headers", "kept"),
+    [({"text": "<meta>"}, [{"text": "<meta>"}]), (None, [])],
+    ids=["mapping", "empty"],
+)
+def test_prefixes_join_any_include_in_header_form(tmp_path: Path, headers: object, kept: list):
+    """Verify that navigation prefixes are added to mapping or empty header entries"""
+    quarto_config: dict = {"format": {"html": {"include-in-header": headers}}}
+
+    label.register(quarto_config, Config(tmp_path))
+
+    *existing, added = quarto_config["format"]["html"]["include-in-header"]
+    assert existing == kept
+    assert added["text"].startswith("<style>:root{--gd-nav-prefix-api:")

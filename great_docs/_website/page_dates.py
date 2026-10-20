@@ -18,8 +18,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlsplit, urlunsplit
 
+from .._yaml import YamlMapping, split_front_matter
 from . import head
-from .seo import description
 
 if TYPE_CHECKING:
     from ..config import Config
@@ -60,16 +60,13 @@ def head_tags(source: Path, config: Config, authors: list[dict[str, Any]]) -> li
     if not config.show_dates or not source.is_file():
         return []
 
-    front_matter, _ = description.split_front_matter(source.read_text(encoding="utf-8"))
-    front_matter = front_matter or {}
-    last_update = front_matter.get("last_update")
-    if not isinstance(last_update, dict):
-        last_update = {}
+    front_matter, _ = split_front_matter(source.read_text(encoding="utf-8"))
+    last_update = front_matter.mapping("last_update")
 
-    modified = _iso_date(last_update.get("date")) or _git_date(source, "-1")
+    modified = _iso_date(last_update.string("date")) or _git_date(source, "-1")
     if not modified:
         modified = datetime.fromtimestamp(source.stat().st_mtime).isoformat()
-    created = _iso_date(front_matter.get("date_created")) or _git_created(source)
+    created = _iso_date(front_matter.string("date_created")) or _git_created(source)
 
     values = {"gd-page-modified": modified, "gd-page-created": created}
     if config.show_author:
@@ -138,7 +135,7 @@ def mark_generated(directory: Path, config: Config) -> None:
         Project configuration. Nothing is written when `show_dates` is off.
     """
     if config.show_dates:
-        (directory / "_metadata.yml").write_text(f"{AUTO_GENERATED}: true\n", encoding="utf-8")
+        _ = (directory / "_metadata.yml").write_text(f"{AUTO_GENERATED}: true\n", encoding="utf-8")
 
 
 def site_authors(config: Config, source_dir: Path, base_url: str | None) -> list[dict[str, Any]]:
@@ -165,7 +162,7 @@ def site_authors(config: Config, source_dir: Path, base_url: str | None) -> list
     for author in config.authors:
         portrait = _portrait(author, source_dir)
         if portrait is not None:
-            url = urlsplit(author["image"])
+            url = urlsplit(str(author["image"]))
             path = (base_url or "/") + (_PORTRAITS / portrait.name).as_posix()
             author = {**author, "image": urlunsplit(("", "", path, url.query, url.fragment))}
         authors.append(author)
@@ -202,7 +199,7 @@ def copy_portraits(config: Config, source_dir: Path, build_dir: Path) -> None:
                 raise ValueError(f"Author portraits share the file name {portrait.name!r}")
             continue
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(portrait, destination)
+        _ = shutil.copy2(portrait, destination)
 
 
 def _portrait(author: dict[str, Any], source_dir: Path) -> Path | None:
@@ -232,7 +229,7 @@ def _portrait(author: dict[str, Any], source_dir: Path) -> Path | None:
     return portrait if portrait.is_file() else None
 
 
-def _iso_date(value: object) -> str:
+def _iso_date(value: str | None) -> str:
     """
     Format a front matter date for a metadata tag
 
@@ -250,11 +247,10 @@ def _iso_date(value: object) -> str:
     """
     if not value:
         return ""
-    text = str(value)
-    if "T" in text:
-        return text
+    if "T" in value:
+        return value
     try:
-        return datetime.fromisoformat(text).isoformat()
+        return datetime.fromisoformat(value).isoformat()
     except ValueError:
         return ""
 
@@ -334,7 +330,7 @@ def _git_created(source: Path) -> str:
 
 
 def _author(
-    front_matter: dict[str, Any], last_update: dict[str, Any], authors: list[dict[str, Any]]
+    front_matter: YamlMapping, last_update: YamlMapping, authors: list[dict[str, Any]]
 ) -> dict[str, str]:
     """
     Resolve a page's author tags
@@ -353,22 +349,19 @@ def _author(
     :
         The author's name, image and URL, each empty when unknown.
     """
-    name = str(last_update.get("author") or "")
+    name = last_update.string("author") or ""
     image = url = ""
     if not name:
-        author = front_matter.get("author")
-        if isinstance(author, str):
+        if author := front_matter.string("author"):
             name = author
-        elif isinstance(author, dict):
-            name = str(author.get("name") or "")
-            image = str(author.get("image") or "")
-            url = str(author.get("url") or "")
+        else:
+            author = front_matter.mapping("author")
+            name = author.string("name") or ""
+            image = author.string("image") or ""
+            url = author.string("url") or ""
 
     if name and not image:
-        entry = next(
-            (a for a in authors if isinstance(a, dict) and a.get("name") == name),
-            {},
-        )
+        entry: dict[str, Any] = next((a for a in authors if a.get("name") == name), None) or {}
         homepage = str(entry.get("homepage") or "")
         image = str(entry.get("image") or "")
         if not image:

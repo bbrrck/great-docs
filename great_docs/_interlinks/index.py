@@ -21,10 +21,10 @@ if TYPE_CHECKING:
 class AliasResolution:
     """Resolved short names and names claimed by multiple objects"""
 
-    kept: dict[str, str] = field(default_factory=dict)
+    kept: dict[str, str] = field(default_factory=dict[str, str])
     """Unambiguous short names mapped to their full names"""
 
-    dropped: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    dropped: dict[str, tuple[str, ...]] = field(default_factory=dict[str, tuple[str, ...]])
     """Ambiguous short names mapped to every full name that claims them"""
 
 
@@ -122,9 +122,11 @@ class IndexEntry:
 class Index:
     """The names and targets needed to resolve references"""
 
-    names: dict[str, tuple[IndexEntry, ...]] = field(default_factory=dict)
-    prefixes: dict[str, tuple[str, ...]] = field(default_factory=dict)
-    dropped: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    names: dict[str, tuple[IndexEntry, ...]] = field(
+        default_factory=dict[str, tuple[IndexEntry, ...]]
+    )
+    prefixes: dict[str, tuple[str, ...]] = field(default_factory=dict[str, tuple[str, ...]])
+    dropped: dict[str, tuple[str, ...]] = field(default_factory=dict[str, tuple[str, ...]])
     """Short names claimed by multiple local objects and their claimants"""
 
     add_function_parentheses: bool = True

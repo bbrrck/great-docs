@@ -16,7 +16,7 @@ from functools import cached_property
 from typing import Any, Final, Self, cast
 
 from ._walkable import MISSING, MissingType, Walkable
-from .introspect import _validate_dynamic
+from .introspect import validate_dynamic
 
 
 class ChildrenStyle(Enum):
@@ -104,7 +104,7 @@ class SpecOptions(Walkable):
                 object.__setattr__(self, f.name, f.default_factory())
             # else: field has no default — it must be in kwargs or will error
         object.__setattr__(self, "_fields_specified", tuple(kwargs.keys()))
-        _validate_dynamic(self.dynamic, allow_none=True)
+        validate_dynamic(self.dynamic, allow_none=True)
         _validate_members(self.members, kwargs.get("name"))
 
     def replace(self, **changes: object) -> Self:
@@ -116,7 +116,7 @@ class SpecOptions(Walkable):
         field and mark them all as specified.)
         """
         if "dynamic" in changes:
-            _validate_dynamic(changes["dynamic"], allow_none=True)
+            validate_dynamic(changes["dynamic"], allow_none=True)
 
         new = self.copy()
         for name, value in changes.items():

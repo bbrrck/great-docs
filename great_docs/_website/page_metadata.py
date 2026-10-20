@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from yaml12 import format_yaml
 
+from .._yaml import FRONT_MATTER_OPENING, YamlMapping, split_front_matter
 from . import head, scale_to_fit, social_cards
 from .seo import description
 
@@ -66,7 +67,7 @@ class Page:
     content: str
     """The page source as read"""
 
-    front_matter: dict[str, Any]
+    front_matter: YamlMapping
     """The parsed front matter, empty when the page has none or it is not a mapping"""
 
     body: str
@@ -90,12 +91,12 @@ class Page:
             The page.
         """
         content = path.read_text(encoding="utf-8")
-        front_matter, body = description.split_front_matter(content)
+        front_matter, body = split_front_matter(content)
         return cls(
             path=path,
             output_path=path.relative_to(project_dir).with_suffix(".html").as_posix(),
             content=content,
-            front_matter=front_matter or {},
+            front_matter=front_matter,
             body=body,
         )
 
@@ -118,8 +119,9 @@ def add_to_page(content: str, entries: dict[str, Any]) -> str:
         The page with the entries prepended, creating front matter if needed.
     """
     block = format_yaml(entries).rstrip()
-    if content.startswith("---\n"):
-        return f"---\n{block}\n{content[4:]}"
+    opening = FRONT_MATTER_OPENING.match(content)
+    if opening is not None:
+        return f"---\n{block}\n{content[opening.end() :]}"
     return f"---\n{block}\n---\n\n{content}"
 
 
@@ -200,6 +202,6 @@ def write_to_pages(
             content = head.add_tags(content, tags)
         if content == page.content:
             continue
-        path.write_text(content, encoding="utf-8")
+        _ = path.write_text(content, encoding="utf-8")
         changed.append(path)
     return changed

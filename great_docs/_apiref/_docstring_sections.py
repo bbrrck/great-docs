@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Type
+from typing import ClassVar, cast
 
 import griffe as gf
 
@@ -21,13 +21,13 @@ __all__ = (
     "DCDocstringSectionInitParameters",
     "DCDocstringSectionKind",
     "DCDocstringSectionParameterAttributes",
-    "DocstringSectionKindPatched",
     "DocstringSectionNotes",
     "DocstringSectionSeeAlso",
     "DocstringSectionWarnings",
     "ExampleCode",
     "ExampleText",
     "transform",
+    "transform_sections",
     "tuple_to_data",
 )
 
@@ -77,44 +77,65 @@ class DCDocstringSectionInitParameters(DCDocstringSection):
     kind: DCDocstringSectionKind = DCDocstringSectionKind.init_parameters
 
 
+
 def transform(el: object) -> object:
     """Cast `el` to a more specific docstring element, falling back to `el` itself"""
 
     if isinstance(el, tuple):
-        try:
-            return tuple_to_data(el)
-        except ValueError:
-            pass
+        match cast("tuple[object, object]", el):
+            case (gf.DocstringSectionKind() as kind, str() as value):
+                try:
+                    return tuple_to_data((kind, value))
+                except ValueError:
+                    pass
+            case _:
+                pass
 
-    elif isinstance(el, list) and len(el) and isinstance(el[0], gf.DocstringSection):
-        return _DocstringSectionPatched.transform_all(el)
+    elif isinstance(el, list):
+        # Assume the remaining items are sections when the first item is a section.
+        items = cast("list[object]", el)
+        if items and isinstance(items[0], gf.DocstringSection):
+            return transform_sections(cast("list[gf.DocstringSection]", items))
 
-    return el
+    return cast("object", el)
+
+
+def transform_sections(sections: list[gf.DocstringSection]) -> list[gf.DocstringSection]:
+    """
+    Convert generic Griffe sections to specialised section classes
+
+    Parameters
+    ----------
+    sections
+        The parsed sections of a docstring.
+
+    Returns
+    -------
+    :
+        The sections, with specialised classes for See Also, Notes and Warnings.
+    """
+    return [section for item in sections for section in _DocstringSectionPatched.transform(item)]
 
 
 # Patch DocstringSection ------------------------------------------------------
 
 
-class DocstringSectionKindPatched(Enum):
-    see_also = "see also"
-    notes = "notes"
-    warnings = "warnings"
-
-
 class _DocstringSectionPatched(gf.DocstringSection):
-    _registry: "dict[str, Type[_DocstringSectionPatched]]" = {}
+    # Griffe parses unrecognised numpydoc sections as admonitions.
+    kind: gf.DocstringSectionKind = gf.DocstringSectionKind.admonition
+    _registry: ClassVar[dict[str, type[_DocstringSectionPatched]]] = {}
 
-    def __init__(self, value: str, title: "str | None" = None) -> None:
+    def __init__(self, value: str, title: str | None = None) -> None:
         super().__init__(title)
         self.value = value
 
-    def __init_subclass__(cls, **kwargs: object) -> None:
+    def __init_subclass__(cls, title: str, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
 
-        if cls.kind.value in cls._registry:
-            raise KeyError(f"A section for kind {cls.kind} already exists")
+        if title in cls._registry:
+            raise KeyError(f"A section titled {title!r} already exists")
 
-        cls._registry[cls.kind.value] = cls
+        cls._registry[title] = cls
 
     @staticmethod
     def split_sections(text: str) -> list[tuple[str, str]]:
@@ -124,7 +145,7 @@ class _DocstringSectionPatched(gf.DocstringSection):
         current_match = comp.search(text)
         current_pos = 0
 
-        results = []
+        results: list[tuple[str, str]] = []
         while current_match is not None:
             if current_pos == 0 and current_match.start() > 0:
                 results.append(("", text[: current_match.start()]))
@@ -149,15 +170,15 @@ class _DocstringSectionPatched(gf.DocstringSection):
         if not isinstance(el, (gf.DocstringSectionText, gf.DocstringSectionAdmonition)):
             return [el]
 
-        results = []
+        results: list[gf.DocstringSection] = []
 
         if isinstance(el, gf.DocstringSectionText):
             splits = cls.split_sections(el.value)
             for title, body in splits:
                 sub_cls = cls._registry.get(title.lower(), gf.DocstringSectionText)
                 results.append(sub_cls(body, title))
-        elif isinstance(el, gf.DocstringSectionAdmonition):  # pragma: no branch
-            sub_cls = cls._registry.get(el.title.lower(), None)
+        else:
+            sub_cls = cls._registry.get((el.title or "").lower(), None)
             if sub_cls:
                 results.append(sub_cls(el.value.contents, el.title))
             else:
@@ -165,21 +186,17 @@ class _DocstringSectionPatched(gf.DocstringSection):
 
         return results or [el]
 
-    @classmethod
-    def transform_all(cls, el: list[gf.DocstringSection]) -> list[gf.DocstringSection]:
-        return [section for item in el for section in cls.transform(item)]
+
+class DocstringSectionSeeAlso(_DocstringSectionPatched, title="see also"):
+    pass
 
 
-class DocstringSectionSeeAlso(_DocstringSectionPatched):
-    kind = DocstringSectionKindPatched.see_also
+class DocstringSectionNotes(_DocstringSectionPatched, title="notes"):
+    pass
 
 
-class DocstringSectionNotes(_DocstringSectionPatched):
-    kind = DocstringSectionKindPatched.notes
-
-
-class DocstringSectionWarnings(_DocstringSectionPatched):
-    kind = DocstringSectionKindPatched.warnings
+class DocstringSectionWarnings(_DocstringSectionPatched, title="warnings"):
+    pass
 
 
 # Patch Example elements ------------------------------------------------------

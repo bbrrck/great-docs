@@ -28,7 +28,7 @@ class Walkable:
         """
         return dataclasses.replace(self, **changes)
 
-    def _iter_fields(self) -> Generator[tuple[str, object], None, None]:
+    def iter_fields(self) -> Generator[tuple[str, object], None, None]:
         """Iterate (field_name, value) pairs for every dataclass field on this node"""
         for f in dc_fields(self):
             yield f.name, getattr(self, f.name)
@@ -43,7 +43,8 @@ class MissingType(Walkable):
     lets `MISSING` stand as a plain dataclass field default.
     """
 
-    __hash__ = object.__hash__
+    def __hash__(self) -> int:
+        return object.__hash__(self)
 
 
 MISSING = MissingType()

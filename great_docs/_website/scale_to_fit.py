@@ -10,20 +10,15 @@ from __future__ import annotations
 import html
 import json
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, TypeAlias
+from pathlib import Path
+from typing import TYPE_CHECKING
 
-from yaml12 import Yaml, read_yaml
+from yaml12 import read_yaml
+
+from .._yaml import YamlScalar, YamlValue
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from .page_metadata import Page
-
-YamlScalar: TypeAlias = None | bool | int | float | str | Yaml
-"""A parsed YAML scalar or tagged node"""
-
-YamlValue: TypeAlias = "YamlScalar | list[YamlValue] | dict[YamlScalar, YamlValue]"
-"""A parsed YAML value, as front matter or `_metadata.yml` supplies it"""
 
 SELECTORS = "scale-to-fit"
 """Front matter key for the selectors of the elements to scale"""
@@ -111,8 +106,11 @@ class Overrides:
     project_dir: Path
     """The Quarto project directory"""
 
-    _metadata_by_directory: dict[Path, dict[YamlScalar, YamlValue]] = field(  # pyright: ignore[reportUnknownVariableType]
-        default_factory=dict, init=False, repr=False, compare=False
+    _metadata_by_directory: dict[Path, dict[YamlScalar, YamlValue]] = field(
+        default_factory=dict[Path, dict[YamlScalar, YamlValue]],
+        init=False,
+        repr=False,
+        compare=False,
     )
     """Metadata read so far, by directory"""
 

@@ -49,7 +49,7 @@ _BUILTIN_NOISE_DUNDERS = frozenset(
 _ENUM_BASES = frozenset({"Enum", "IntEnum", "StrEnum", "Flag", "IntFlag", "ReprEnum", "EnumCheck"})
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
 
     from ._settings import Settings
     from .spec import SpecEntry
@@ -143,10 +143,7 @@ def _sections_from_package(mod: gf.Module) -> list[SpecSection]:
 def _to_simple_dict(el: object) -> object:
     """Recursively convert a spec node tree to a plain-dict representation, suitable for YAML"""
     if isinstance(el, Walkable):
-        return {
-            k: _to_simple_dict(v)
-            for k, v in el._iter_fields()  # pyright: ignore[reportPrivateUsage]
-        }
+        return {k: _to_simple_dict(v) for k, v in el.iter_fields()}
     if isinstance(el, (list, tuple)):
         return [_to_simple_dict(item) for item in el]  # type: ignore[var-annotated]
     if isinstance(el, Enum):
@@ -168,7 +165,7 @@ def _join_path(pkg: str | None, name: str) -> str:
     return f"{pkg}:{name}"
 
 
-class _Resolver:
+class Resolver:
     """
     A translator from the `spec` tree to the resolved `content` tree
 
@@ -220,7 +217,7 @@ class _Resolver:
         *,
         package: str | MissingType | None = MISSING,
         options: SpecOptions | None = None,
-    ) -> Iterator[None]:
+    ) -> Generator[None]:
         """Scope entries to resolve under the given package and options
 
         Entries inherit `current_package` and `options` from the enclosing
@@ -229,7 +226,7 @@ class _Resolver:
         old_package = self.current_package
         old_options = self.options
 
-        if package is not MISSING:
+        if not isinstance(package, MissingType):
             self.current_package = package
         if options is not None:
             self.options = options
@@ -398,7 +395,7 @@ class _Resolver:
         # inherently meaningful even without a per-member docstring.
         is_enum_cls = (
             obj.is_class
-            and hasattr(obj, "bases")
+            and isinstance(obj, (gf.Class, gf.Alias))
             and {str(b).rsplit(".", 1)[-1] for b in obj.bases} & _ENUM_BASES
         )
         if not el.include_empty and not is_enum_cls:
@@ -426,34 +423,33 @@ class _Resolver:
         else:
             raise ValueError(f"Unsupported value of member_order: {el.member_order}")
 
+    def autogenerate_sections(self, package: str | None) -> list[SpecSection]:
+        """Generate default API sections and print the equivalent configuration"""
+        print("Autogenerating contents (since no contents specified in config)")
 
-def _autogenerate_sections(r: _Resolver, package: str | None) -> list[SpecSection]:
-    """Introspect default sections from `package`, echoing the equivalent config to stdout"""
-    print("Autogenerating contents (since no contents specified in config)")
+        assert isinstance(package, str)
 
-    assert isinstance(package, str)
+        mod = self.get_object_or_raise(package)
+        assert isinstance(mod, gf.Module)
+        sections = _sections_from_package(mod)
 
-    mod = r.get_object_or_raise(package)
-    assert isinstance(mod, gf.Module)
-    sections = _sections_from_package(mod)
+        if not sections:
+            raise ValueError(f"No API sections could be generated for package: {package}")
 
-    if not sections:
-        raise ValueError(f"No API sections could be generated for package: {package}")
+        recreate_config = {
+            "title": "API Reference",
+            "description": None,
+            "sections": _to_simple_dict(sections),
+            "package": package,
+            "options": None,
+        }
+        print(
+            "Use the following configuration to recreate the automatically",
+            " generated site:\n\n\n",
+            "api-reference:\n",
+            indent(format_yaml(recreate_config), " " * 2),
+            "\n",
+            sep="",
+        )
 
-    recreate_config = {
-        "title": "API Reference",
-        "description": None,
-        "sections": _to_simple_dict(sections),
-        "package": package,
-        "options": None,
-    }
-    print(
-        "Use the following configuration to recreate the automatically",
-        " generated site:\n\n\n",
-        "api-reference:\n",
-        indent(format_yaml(recreate_config), " " * 2),
-        "\n",
-        sep="",
-    )
-
-    return sections
+        return sections

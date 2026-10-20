@@ -12,10 +12,14 @@ import html
 import re
 from typing import TYPE_CHECKING, Any
 
-from yaml12 import format_yaml, parse_yaml
+from yaml12 import format_yaml
+
+from .._yaml import YamlMapping, locate_front_matter
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from .._yaml import YamlValue
 
 HEAD_TAGS = "gd-head-tags"
 """Front matter key for tags that the metadata partial adds to a page's `<head>`"""
@@ -70,8 +74,8 @@ def add_tags(content: str, tags: list[str]) -> str:
         If the existing `HEAD_TAGS` value is not a list, or new elements
         cannot be merged into a list in the generated YAML style.
     """
-    closing_offset, front_matter = _front_matter(content)
-    existing = front_matter.get(HEAD_TAGS) if isinstance(front_matter, dict) else None
+    front_matter = locate_front_matter(content)
+    existing = front_matter.mapping.get(HEAD_TAGS) if front_matter is not None else None
     if existing is not None and not isinstance(existing, list):
         raise ValueError(f"`{HEAD_TAGS}` in the front matter is not a list")
     existing_tags = existing or []
@@ -80,46 +84,19 @@ def add_tags(content: str, tags: list[str]) -> str:
     )
     if not new_tags:
         return content
-    if existing is None:
+    if front_matter is None or existing is None:
         block = format_yaml({HEAD_TAGS: new_tags}).rstrip()
-        if closing_offset:
-            return f"---\n{block}\n{content[4:]}"
-        return f"---\n{block}\n---\n\n{content}"
+        if front_matter is None:
+            return f"---\n{block}\n---\n\n{content}"
+        return f"---\n{block}\n{content[4:]}"
 
     # Match the generated block exactly to preserve surrounding YAML and comments.
     old_block = "\n" + format_yaml({HEAD_TAGS: existing}).rstrip() + "\n"
-    block_offset = content.find(old_block, 3, closing_offset)
+    block_offset = content.find(old_block, 3, front_matter.end)
     if block_offset == -1:
         raise ValueError(f"Cannot add to a hand-written `{HEAD_TAGS}` in the front matter")
     new_block = "\n" + format_yaml({HEAD_TAGS: [*existing_tags, *new_tags]}).rstrip() + "\n"
     return content[:block_offset] + new_block + content[block_offset + len(old_block) :]
-
-
-def _front_matter(content: str) -> tuple[int, Any]:
-    """
-    Locate and parse a page's YAML front matter
-
-    Parameters
-    ----------
-    content
-        The page source.
-
-    Returns
-    -------
-    :
-        The offset of the closing `---`, or 0 when the page has no front
-        matter, and the parsed front matter, or `None`
-        when there is none or it is not valid YAML.
-    """
-    if not content.startswith("---\n"):
-        return 0, None
-    end = content.find("\n---", 3)
-    if end == -1:
-        return 0, None
-    try:
-        return end + 1, parse_yaml(content[4 : end + 1])
-    except ValueError:
-        return end + 1, None
 
 
 def _raw_inline(markup: str) -> str:
@@ -142,16 +119,15 @@ def _raw_inline(markup: str) -> str:
 
 
 def search_includes(
-    includes: Any, base_dir: Path, pattern: re.Pattern[str]
+    entries: list[YamlValue], base_dir: Path, pattern: re.Pattern[str]
 ) -> re.Match[str] | None:
     """
-    Find the first match for `pattern` in an `include-in-header` value
+    Find the first match for `pattern` in `include-in-header` entries
 
     Parameters
     ----------
-    includes
-        An `include-in-header` value: a file path, an entry with `text` or
-        `file`, or a list of them.
+    entries
+        Header entries containing file paths, inline `text`, or a `file` path.
     base_dir
         Base directory for relative header file paths.
     pattern
@@ -162,14 +138,12 @@ def search_includes(
     :
         The match in an inline entry or a readable header file, or `None`.
     """
-    if not isinstance(includes, list):
-        includes = [includes]
-    for item in includes:
-        if isinstance(item, dict):
-            text = item.get("text")
-            path = item.get("file")
+    for entry in entries:
+        if isinstance(entry, dict):
+            entry = YamlMapping(entry)
+            text, path = entry.get("text"), entry.get("file")
         else:
-            text, path = None, item
+            text, path = None, entry
         if text is None and path is not None:
             try:
                 text = (base_dir / str(path)).read_text(encoding="utf-8")
@@ -180,9 +154,9 @@ def search_includes(
     return None
 
 
-def site_includes(quarto_config: dict[str, Any]) -> Any:
+def site_includes(quarto_config: dict[str, Any]) -> list[YamlValue]:
     """
-    Return the site's `include-in-header` value
+    List the site's `include-in-header` entries
 
     Parameters
     ----------
@@ -192,9 +166,10 @@ def site_includes(quarto_config: dict[str, Any]) -> Any:
     Returns
     -------
     :
-        The value, or an empty list when the site has none.
+        The entries, or an empty list when the site has none.
     """
-    return quarto_config.get("format", {}).get("html", {}).get("include-in-header", [])
+    html_format = YamlMapping(quarto_config).mapping("format").mapping("html")
+    return html_format.entries("include-in-header")
 
 
 def includes_match(
@@ -221,7 +196,7 @@ def includes_match(
 
 
 def page_includes_match(
-    front_matter: dict[str, Any], page_dir: Path, pattern: re.Pattern[str]
+    front_matter: YamlMapping, page_dir: Path, pattern: re.Pattern[str]
 ) -> bool:
     """
     Check whether a page's own header includes contain a match for `pattern`
@@ -241,17 +216,10 @@ def page_includes_match(
         `True` when its `include-in-header`, its `format.html` one, or its
         `header-includes` matches.
     """
-    page_format = front_matter.get("format")
-    html_format = page_format.get("html") if isinstance(page_format, dict) else None
-    for includes in (
-        front_matter.get("include-in-header"),
-        html_format.get("include-in-header") if isinstance(html_format, dict) else None,
-    ):
-        if includes is not None and search_includes(includes, page_dir, pattern):
+    for mapping in (front_matter, front_matter.mapping("format").mapping("html")):
+        if search_includes(mapping.entries("include-in-header"), page_dir, pattern):
             return True
-    texts = front_matter.get("header-includes")
-    if not isinstance(texts, list):
-        texts = [texts]
+    texts = front_matter.entries("header-includes")
     return any(isinstance(text, str) and pattern.search(text) for text in texts)
 
 

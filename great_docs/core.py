@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
-from yaml12 import format_yaml, parse_yaml, read_yaml, write_yaml
+from yaml12 import format_yaml, read_yaml, write_yaml
 
 from ._content_naming import fix_numeric_prefix_links, section_slug, strip_numeric_prefix
 from ._layout import Layout, LayoutError
@@ -34,6 +34,7 @@ from ._website.seo import description as seo_description
 from ._website.seo import noindex
 from ._website.seo import title as seo_title
 from ._website.seo.structured_data import StructuredData
+from ._yaml import YamlMapping, locate_front_matter, split_front_matter
 from .config import Config, create_default_config
 
 if TYPE_CHECKING:
@@ -807,14 +808,10 @@ class GreatDocs:
     def _rebase_page_bibliography(
         self, content: str, source_file: Path, destination_file: Path
     ) -> str:
-        match = re.match(r"\A---\s*\n(.*?)\n---\s*(?:\n|$)", content, re.DOTALL)
-        if match is None:
+        block = locate_front_matter(content)
+        if block is None:
             return content
-        try:
-            frontmatter = parse_yaml(match[1]) or {}
-        except ValueError:
-            return content
-        bibliography = frontmatter.get("bibliography")
+        bibliography = block.mapping.get("bibliography")
         if isinstance(bibliography, str):
             entries = [bibliography]
             is_list = False
@@ -849,9 +846,8 @@ class GreatDocs:
 
         if not changed:
             return content
-        frontmatter["bibliography"] = rebased if is_list else rebased[0]
-        replacement = format_yaml(frontmatter).rstrip("\n")
-        return content[: match.start(1)] + replacement + content[match.end(1) :]
+        frontmatter = {**block.mapping.data, "bibliography": rebased if is_list else rebased[0]}
+        return f"---\n{format_yaml(frontmatter)}\n---\n{content[block.end :]}"
 
     def _source_page_destination(self, source: Path) -> Path | None:
         """
@@ -2518,12 +2514,14 @@ class GreatDocs:
                 except (OSError, UnicodeDecodeError):  # pragma: no cover
                     continue  # pragma: no cover
 
-                fm, _ = self._split_frontmatter(content)
-                raw_tags = fm.get("tags", [])
-                if not raw_tags or not isinstance(raw_tags, list):
+                fm, _ = split_front_matter(content)
+                raw_tags = fm.sequence("tags")
+                if not raw_tags:
                     continue
 
-                page_title = fm.get("title", self._derive_page_title(qmd_file))
+                page_title = fm.string("title")
+                if page_title is None:
+                    page_title = self._derive_page_title(qmd_file)
                 page_href = str(qmd_file.relative_to(self.build_dir))
 
                 for tag in raw_tags:
@@ -2762,9 +2760,9 @@ class GreatDocs:
                     content = qmd_file.read_text(encoding="utf-8")
                 except (OSError, UnicodeDecodeError):  # pragma: no cover
                     continue  # pragma: no cover
-                fm, _ = self._split_frontmatter(content)
-                raw_tags = fm.get("tags", [])
-                if not raw_tags or not isinstance(raw_tags, list):  # pragma: no cover
+                fm, _ = split_front_matter(content)
+                raw_tags = fm.sequence("tags")
+                if not raw_tags:  # pragma: no cover
                     continue  # pragma: no cover
                 href = str(qmd_file.relative_to(self.build_dir))
                 for tag in raw_tags:
@@ -2774,7 +2772,7 @@ class GreatDocs:
                         # Shadow tags are NOT added to the visible list
 
                 # Collect per-page tag-location override
-                tag_loc = fm.get("tag-location")
+                tag_loc = fm.string("tag-location")
                 if tag_loc in ("top", "bottom"):
                     page_tag_locations[href] = tag_loc
 
@@ -3040,9 +3038,9 @@ class GreatDocs:
                 except (OSError, UnicodeDecodeError):  # pragma: no cover
                     continue  # pragma: no cover
 
-                fm, _ = self._split_frontmatter(content)
-                status = fm.get("status")
-                if not status or not isinstance(status, str):
+                fm, _ = split_front_matter(content)
+                status = fm.string("status")
+                if not status:
                     continue
                 status = status.strip().lower()
                 if status not in valid_statuses:
@@ -3402,26 +3400,14 @@ class GreatDocs:
             description = ""
             image = ""
 
-            if content.startswith("---"):
-                parts = content.split("---", 2)
-                if len(parts) >= 3:
-                    try:
-                        fm = parse_yaml(parts[1])
-                        if isinstance(fm, dict):
-                            title = fm.get("title", title)
-                            description = fm.get("description", "")
-                            image = fm.get("image", "")
-
-                            # Add bread-crumbs: false
-                            changed = False
-                            if "bread-crumbs" not in fm:
-                                fm["bread-crumbs"] = False
-                                changed = True
-                            if changed:
-                                parts[1] = "\n" + format_yaml(fm) + "\n"
-                                content = "---".join(parts)
-                    except ValueError:  # pragma: no cover
-                        pass  # pragma: no cover
+            if (block := locate_front_matter(content)) is not None:
+                fm = block.mapping
+                title = fm.string("title") or title
+                description = fm.string("description") or ""
+                image = fm.string("image") or ""
+                if "bread-crumbs" not in fm:
+                    updated = {**fm.data, "bread-crumbs": False}
+                    content = f"---\n{format_yaml(updated)}\n---\n{content[block.end :]}"
 
             dest_file.write_text(
                 page_dates.add_to_page(content, src_file, self._config, self._page_authors),
@@ -3498,16 +3484,9 @@ class GreatDocs:
             title = rel.stem.replace("-", " ").title()
             description = ""
 
-            if content.startswith("---"):
-                parts = content.split("---", 2)
-                if len(parts) >= 3:
-                    try:
-                        fm = parse_yaml(parts[1])
-                        if isinstance(fm, dict):
-                            title = fm.get("title", title)
-                            description = fm.get("description", "")
-                    except ValueError:
-                        pass
+            fm, _ = split_front_matter(content)
+            title = fm.string("title") or title
+            description = fm.string("description") or ""
 
             dest_file.write_text(
                 page_dates.add_to_page(content, src_file, self._config, self._page_authors),
@@ -3908,28 +3887,18 @@ class GreatDocs:
                 continue
 
             content = qmd_path.read_text(encoding="utf-8")
-            if not content.startswith("---"):
-                continue
-
-            parts = content.split("---", 2)
-            if len(parts) < 3:  # pragma: no cover
-                continue
-
-            try:
-                fm = parse_yaml(parts[1])
-                if not isinstance(fm, dict):
-                    continue
-            except ValueError:  # pragma: no cover
+            block = locate_front_matter(content)
+            if block is None:
                 continue
 
             # Merge body-classes
-            existing = fm.get("body-classes", "")
-            classes = existing.split() if existing else []
+            classes = " ".join(block.mapping.strings("body-classes")).split()
             if "gd-section-no-sidebar" not in classes:
                 classes.append("gd-section-no-sidebar")
-                fm["body-classes"] = " ".join(classes)
-                parts[1] = "\n" + format_yaml(fm) + "\n"
-                qmd_path.write_text("---".join(parts), encoding="utf-8")
+                updated = {**block.mapping.data, "body-classes": " ".join(classes)}
+                qmd_path.write_text(
+                    f"---\n{format_yaml(updated)}\n---\n{content[block.end :]}", encoding="utf-8"
+                )
 
     def _add_section_to_navbar(
         self,
@@ -4054,27 +4023,6 @@ class GreatDocs:
 
         return sources
 
-    def _split_frontmatter(self, content: str) -> tuple[dict, str]:
-        """Split YAML frontmatter from file content when present."""
-        normalized = content.lstrip()
-
-        if not normalized.startswith("---"):
-            return {}, content
-
-        parts = normalized.split("---", 2)
-        if len(parts) < 3:
-            return {}, content  # pragma: no cover
-
-        try:
-            frontmatter = parse_yaml(parts[1]) or {}
-        except ValueError:
-            return {}, content
-
-        if not isinstance(frontmatter, dict):
-            return {}, content
-
-        return frontmatter, parts[2].lstrip("\n")
-
     @staticmethod
     def _html_escape(text: str) -> str:
         """Escape HTML-special characters in *text*."""
@@ -4089,24 +4037,26 @@ class GreatDocs:
 
     def _get_custom_page_navbar_config(
         self,
-        frontmatter: dict,
+        frontmatter: YamlMapping,
         default_title: str,
     ) -> tuple[str, str | None] | None:
         """Resolve optional navbar configuration for a custom page."""
         navbar = frontmatter.get("navbar")
+        navbar_after = frontmatter.string("navbar_after")
 
         if navbar in (None, False):
             return None
 
         if navbar is True:
-            return default_title, frontmatter.get("navbar_after")
+            return default_title, navbar_after
 
         if isinstance(navbar, str):
-            return navbar, frontmatter.get("navbar_after")
+            return navbar, navbar_after
 
         if isinstance(navbar, dict):
+            navbar = YamlMapping(navbar)
             text = navbar.get("text", default_title)
-            after = navbar.get("after", frontmatter.get("navbar_after"))
+            after = navbar.get("after", navbar_after)
             if isinstance(text, str) and text:
                 return text, after if isinstance(after, str) else None
 
@@ -4185,9 +4135,10 @@ class GreatDocs:
 
                 content = src_path.read_text(encoding="utf-8")
                 content = self._rebase_source_references(content, src_path, dest_path)
-                frontmatter, body = self._split_frontmatter(content)
-                layout = str(frontmatter.get("layout", "passthrough")).lower()
-                page_title = str(frontmatter.get("title") or self._derive_page_title(src_path))
+                frontmatter, body = split_front_matter(content)
+                body = body.lstrip("\n")
+                layout = (frontmatter.string("layout") or "passthrough").lower()
+                page_title = frontmatter.string("title") or self._derive_page_title(src_path)
 
                 if layout not in {"passthrough", "raw"}:
                     print(  # pragma: no cover
@@ -4223,7 +4174,7 @@ class GreatDocs:
                     nav_href = raw_resource
                 else:
                     qmd_path = dest_path.with_suffix(".qmd")
-                    qmd_frontmatter = dict(frontmatter)
+                    qmd_frontmatter = dict(frontmatter.data)
                     qmd_frontmatter.pop("layout", None)
                     qmd_frontmatter.setdefault("title", page_title)
                     qmd_frontmatter.setdefault("bread-crumbs", False)
@@ -5838,18 +5789,10 @@ class GreatDocs:
         except Exception:
             return None
 
-        # Extract YAML frontmatter
-        frontmatter = {}
-        if content.startswith("---"):
-            parts = content.split("---", 2)
-            if len(parts) >= 3:
-                try:
-                    frontmatter = parse_yaml(parts[1]) or {}
-                except ValueError:  # pragma: no cover
-                    pass  # pragma: no cover
+        frontmatter, _ = split_front_matter(content)
 
         # Get title from frontmatter or derive from filename
-        title = frontmatter.get("title")
+        title = frontmatter.string("title")
         if not title:
             # Derive title from filename: "01-getting-started.qmd" -> "Getting Started"
             name = qmd_path.stem
@@ -5859,13 +5802,12 @@ class GreatDocs:
             title = name.replace("-", " ").replace("_", " ").title()
 
         # Get section from frontmatter (use 'guide-section' to avoid conflict with Quarto's 'section')
-        section = frontmatter.get("guide-section")
+        section = frontmatter.string("guide-section")
 
         return {
             "path": qmd_path,
             "section": section,
             "title": title,
-            "frontmatter": frontmatter,
         }
 
     def _copy_user_guide_to_docs(self, user_guide_info: dict) -> list[str]:
@@ -11340,12 +11282,12 @@ title: "Authors and Citation"
             # horizontal rule plus visible raw YAML text (e.g. index.qmd files,
             # which universally start with a `---` block). The source title is
             # carried over into the wrapper so an authored title survives.
-            source_fm, readme_content = self._split_frontmatter(readme_content)
-            source_title = source_fm.get("title", "")
-            if isinstance(source_title, str) and source_title:
+            source_fm, readme_content = split_front_matter(readme_content)
+            readme_content = readme_content.lstrip("\n")
+            if source_title := source_fm.string("title"):
                 homepage_title = source_title
             homepage_description = {
-                key: source_fm[key] for key in seo_description.PAGE_KEYS if key in source_fm
+                key: source_fm.get(key) for key in seo_description.PAGE_KEYS if key in source_fm
             }
 
             # Copy images referenced in the source file to the build directory
@@ -14745,11 +14687,11 @@ anchor-sections: true
             if not sp.exists():  # pragma: no cover
                 continue  # pragma: no cover
             content = sp.read_text(encoding="utf-8")
-            fm, _ = self._split_frontmatter(content)
+            fm, _ = split_front_matter(content)
             skill_meta.append(
                 {
-                    "name": fm.get("name", sp.stem),
-                    "description": (fm.get("description") or "").strip(),
+                    "name": fm.string("name") or sp.stem,
+                    "description": (fm.string("description") or "").strip(),
                     "path": sp,
                     "dir": sd,
                 }
@@ -15279,11 +15221,9 @@ anchor-sections: true
         for skill_path, source_dir in skill_entries:
             # Parse frontmatter to extract skill name and description
             content = skill_path.read_text(encoding="utf-8")
-            fm, _ = self._split_frontmatter(content)
-            skill_name = fm.get("name", "default")
-            skill_description = fm.get("description", "")
-            if isinstance(skill_description, str):
-                skill_description = skill_description.strip()
+            fm, _ = split_front_matter(content)
+            skill_name = fm.string("name") or "default"
+            skill_description = (fm.string("description") or "").strip()
 
             # --- Preferred: .well-known/agent-skills/{name}/SKILL.md ---
             agent_skills_dir = self.build_dir / ".well-known" / "agent-skills" / skill_name

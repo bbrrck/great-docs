@@ -11,8 +11,8 @@ from yaml12 import parse_yaml
 
 from great_docs._website import head, social_cards
 from great_docs._website.page_metadata import Page, add_to_page, write_to_pages
-from great_docs._website.seo.description import split_front_matter
 from great_docs._website.seo.structured_data import StructuredData
+from great_docs._yaml import split_front_matter
 from great_docs.config import Config
 
 LONG = "This sentence is comfortably longer than thirty characters."
@@ -35,13 +35,20 @@ def _write(root: Path, rel: str, text: str) -> Path:
 
 def _front_matter(path: Path) -> dict:
     front_matter, _ = split_front_matter(path.read_text(encoding="utf-8"))
-    return front_matter or {}
+    return dict(front_matter.data)
 
 
 def test_add_to_page_keeps_the_author_front_matter():
     content = "---\ntitle: A  # a comment\n---\n\nBody\n"
     assert add_to_page(content, {"description-meta": "Desc"}) == (
         "---\ndescription-meta: Desc\ntitle: A  # a comment\n---\n\nBody\n"
+    )
+
+
+def test_add_to_page_joins_front_matter_with_a_padded_opening_line():
+    content = "--- \ntitle: A\n---\n\nBody\n"
+    assert add_to_page(content, {"description-meta": "Desc"}) == (
+        "---\ndescription-meta: Desc\ntitle: A\n---\n\nBody\n"
     )
 
 
@@ -54,7 +61,7 @@ def test_add_to_page_creates_front_matter():
 def test_add_to_page_quotes_yaml():
     entries = {"description-meta": "Colon: and \\*star", "open-graph": {"title": "A: B"}}
     front_matter, _ = split_front_matter(add_to_page("Body\n", entries))
-    assert front_matter == entries
+    assert front_matter.data == entries
 
 
 def test_page_reads_front_matter_and_output_path(tmp_path: Path) -> None:
@@ -62,13 +69,13 @@ def test_page_reads_front_matter_and_output_path(tmp_path: Path) -> None:
     guide = _write(tmp_path, "guide.md", "Guide\n")
 
     page = Page.make(index, tmp_path)
-    assert (page.output_path, page.front_matter, page.body) == (
+    assert (page.output_path, page.front_matter.data, page.body) == (
         "reference/index.html",
         {"title": "R"},
         "\nBody\n",
     )
     page = Page.make(guide, tmp_path)
-    assert (page.output_path, page.front_matter, page.body) == ("guide.html", {}, "Guide\n")
+    assert (page.output_path, page.front_matter.data, page.body) == ("guide.html", {}, "Guide\n")
 
 
 def test_writes_only_pages_quarto_renders(tmp_path: Path):

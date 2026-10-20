@@ -106,7 +106,7 @@ def get_object(
         The node griffe models at `path` — an object, or an alias when the path
         reaches it through a re-export.
     """
-    _validate_dynamic(dynamic)
+    validate_dynamic(dynamic)
 
     if loader is None:
         loader = make_loader(parser or "numpy")
@@ -980,7 +980,7 @@ def _has_no_value(obj: gf.Object | gf.Alias) -> bool:
     return False
 
 
-def _validate_dynamic(value: object, *, allow_none: bool = False) -> None:
+def validate_dynamic(value: object, *, allow_none: bool = False) -> None:
     if isinstance(value, bool) or (allow_none and value is None):
         return
     raise ValueError(

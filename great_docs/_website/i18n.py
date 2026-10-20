@@ -11,7 +11,7 @@ from __future__ import annotations
 import html
 import json
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from .._translations import get_translations_bundle, is_rtl
 from . import head
@@ -24,7 +24,7 @@ _HTML_TAG = re.compile(r"<html\b[^>]*>", re.IGNORECASE)
 _DIR_ATTRIBUTE = re.compile(r"\sdir\s*=", re.IGNORECASE)
 
 
-def register(quarto_config: dict, config: Config) -> None:
+def register(quarto_config: dict[str, Any], config: Config) -> None:
     """
     Default to right-to-left text for RTL languages
 
@@ -40,7 +40,7 @@ def register(quarto_config: dict, config: Config) -> None:
     """
     html_config = quarto_config.get("format", {}).get("html")
     if isinstance(html_config, dict) and is_rtl(config.lang):
-        html_config.setdefault("dir", "rtl")
+        cast("dict[str, Any]", html_config).setdefault("dir", "rtl")
 
 
 def meta_tag(config: Config) -> str | None:
