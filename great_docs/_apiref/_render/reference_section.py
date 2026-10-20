@@ -12,8 +12,8 @@ from great_docs.pandoc.blocks import (
 from great_docs.pandoc.components import Attr
 
 from .._globals import translate
+from ._tables import summary_table
 from .base import RenderBase
-from .html_table import html_table
 
 if TYPE_CHECKING:
     from typing import Literal
@@ -117,7 +117,7 @@ class __RenderReferenceSection(RenderBase):
 
         render_objs: list[RenderObjType] = [get_render_type(c)(c) for c in self.section.contents]
         rows = [row for r in render_objs for row in r.render_summary()]
-        items = DefinitionList(rows) if self.display_format == "list" else html_table(rows)
+        items = DefinitionList(rows) if self.display_format == "list" else summary_table(rows)
         return items
 
 
